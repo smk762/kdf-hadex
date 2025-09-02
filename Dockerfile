@@ -2,8 +2,13 @@
 FROM komodoofficial/komodo-defi-framework:dev-latest
 
 # Install required tools for HA integration
-RUN apt-get update && apt-get install -y curl jq xz-utils \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y \
+        curl \
+        jq \
+        xz-utils \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 # Install bashio for Home Assistant integration
 RUN curl -J -L -o /tmp/bashio.tar.gz \
@@ -25,7 +30,7 @@ RUN curl -L -o /tmp/s6-overlay-noarch.tar.xz \
         "https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-x86_64.tar.xz" \
     && tar -C / -Jxpf /tmp/s6-overlay-noarch.tar.xz \
     && tar -C / -Jxpf /tmp/s6-overlay-x86_64.tar.xz \
-    && rm /tmp/s6-overlay-*.tar.xz
+    && rm -f /tmp/s6-overlay-*.tar.xz
 
 # Copy our service files + init scripts + config files AFTER s6-overlay installation
 COPY rootfs/ /

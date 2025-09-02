@@ -32,9 +32,6 @@ rm -f /tmp/kdf-setup-running
 
 echo "[kdf] Setup script starting..."
 touch /tmp/kdf-setup-running
-echo "[kdf] Current user: $(whoami)"
-echo "[kdf] Script permissions: $(ls -la /etc/cont-init.d/10-setup)"
-echo "[kdf] Preparing configuration in /data"
 
 # Load bashio for config access (with protection against multiple loads)
 echo "[kdf] Loading bashio..."
