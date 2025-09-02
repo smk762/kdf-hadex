@@ -1,0 +1,49 @@
+name: Komodo DeFi Framework (KDF)
+slug: kdf
+version: "0.1.0"
+description: Runs the Komodo DeFi Framework (mm2) JSON-RPC engine for the HA integration. KDF version is displayed in the add-on logs.
+url: https://github.com/smk762/ha-kdf
+startup: services
+boot: auto
+arch:
+  - amd64
+init: false
+host_network: false
+
+ports:
+  7783/tcp: 7783
+ports_description:
+  7783/tcp: KDF JSON-RPC
+
+map:
+  - data:rw
+  - share:rw
+
+environment:
+  LANG: C.UTF-8
+
+dinghy: false
+
+options:
+  rpc_password: "CHANGE_ME"
+  rpc_port: 7783
+  netid: 8762
+  coins_url: "https://raw.githubusercontent.com/KomodoPlatform/coins/refs/heads/master/coins"
+  log_level: info
+  wallet_name: "HAOS_KDF_Wallet"
+  wallet_password: "CHANGE_ME"
+  bip39_mnemonic: ""
+  haos_ip: "0.0.0.0"
+  seednodes: ["seed01.kmdefi.net", "seed02.kmdefi.net", "balerion.dragon-seed.com", "drogon.dragon-seed.com", "falkor.dragon-seed.com"]
+
+schema:
+  rpc_password: password
+  rpc_port: int
+  netid: int
+  coins_url: str?
+  log_level: list(info|debug|warning|error)
+  wallet_name: str
+  wallet_password: password
+  bip39_mnemonic: password
+  haos_ip: str
+  seednodes: [str?]

@@ -1,0 +1,47 @@
+#!/command/with-contenv bash
+# shellcheck shell=bash
+set -euo pipefail
+
+echo "[kdf] Starting kdf (KDF)"
+
+# Check if setup completed successfully
+if [[ ! -f /tmp/kdf-setup-complete ]]; then
+    echo "[kdf] ERROR: Setup did not complete successfully"
+    echo "[kdf] Please check the addon logs for detailed error messages"
+    echo "[kdf] Common issues:"
+    echo "[kdf]   - rpc_password must be set (not 'CHANGE_ME')"
+    echo "[kdf]   - wallet_password must be set (not 'CHANGE_ME')"
+    echo "[kdf]   - Check that all required configuration fields are filled"
+    exit 1
+fi
+
+# Check if kdf binary exists and is executable
+if [[ ! -f /usr/local/bin/kdf ]]; then
+    echo "[kdf] ERROR: kdf binary not found at /usr/local/bin/kdf"
+    exit 1
+fi
+
+if [[ ! -x /usr/local/bin/kdf ]]; then
+    echo "[kdf] ERROR: kdf binary is not executable"
+    exit 1
+fi
+
+# Check if MM2.json exists
+if [[ ! -f /root/.kdf/MM2.json ]]; then
+    echo "[kdf] ERROR: MM2.json not found at /root/.kdf/MM2.json"
+    echo "[kdf] Contents of /root/.kdf/:"
+    ls -la /root/.kdf/ || echo "Directory does not exist"
+    exit 1
+fi
+
+echo "[kdf] Binary and config checks passed"
+
+# Clean up setup completion marker
+rm -f /tmp/kdf-setup-complete
+
+# Start kdf with enhanced logging
+echo "[kdf] Starting KDF with enhanced logging..."
+exec /usr/local/bin/kdf 2>&1 | while IFS= read -r line; do
+    # Add timestamp and prefix to each line
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [kdf] $line"
+done

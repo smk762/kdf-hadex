@@ -1,0 +1,46 @@
+#!/bin/bash
+# Get KDF status and version information via RPC API
+
+# Check if KDF is running
+if pgrep -f "/usr/local/bin/kdf" >/dev/null 2>&1; then
+    # KDF is running, try to get version via RPC
+    # Get RPC password from environment or config
+    RPC_PASS="${KDF_RPC_PASSWORD:-}"
+    
+    if [ -z "$RPC_PASS" ]; then
+        # Try to get from bashio if available
+        if [ -f /usr/lib/bashio/bashio ]; then
+            source /usr/lib/bashio/bashio "$0" 2>/dev/null || true
+            RPC_PASS="$(bashio::config 'rpc_password' 2>/dev/null || echo '')"
+        fi
+    fi
+    
+    if [ -n "$RPC_PASS" ]; then
+        # Make RPC call to get version
+        RESPONSE=$(curl -s --url "http://127.0.0.1:7783" --data "{
+            \"method\": \"version\",
+            \"userpass\": \"$RPC_PASS\"
+        }" 2>/dev/null)
+        
+        if [ -n "$RESPONSE" ]; then
+            # Extract version from JSON response
+            VERSION=$(echo "$RESPONSE" | jq -r '.result // empty' 2>/dev/null)
+            if [ -n "$VERSION" ] && [ "$VERSION" != "null" ]; then
+                echo "$VERSION"
+            else
+                echo "KDF running - RPC version unavailable"
+            fi
+        else
+            echo "KDF running - RPC connection failed"
+        fi
+    else
+        echo "KDF running - RPC password not available"
+    fi
+else
+    # KDF is not running, check why
+    if [ -f /tmp/kdf-setup-complete ]; then
+        echo "KDF not running - check logs for errors"
+    else
+        echo "KDF not running - setup incomplete"
+    fi
+fi
