@@ -196,28 +196,6 @@ class KDFPanel extends LitElement {
         }
       }
 
-      // Fetch health info for optional services
-      try {
-        const healthResp = await fetch('./api/health');
-        if (healthResp.ok) {
-          const health = await healthResp.json();
-          const ind = this.shadowRoot.getElementById('exchange-indicator');
-          if (ind) {
-            if (health.exchange_rates.status === 'disabled') {
-              ind.textContent = 'Exchange rates: disabled (restart to enable)';
-              ind.className = 'status-warning';
-            } else if (health.exchange_rates.status === 'misconfigured') {
-              ind.textContent = 'Exchange rates: misconfigured — add API key';
-              ind.className = 'status-error';
-            } else {
-              ind.textContent = 'Exchange rates: enabled';
-              ind.className = 'status-value';
-            }
-          }
-        }
-      } catch (e) {
-        // ignore health errors
-      }
       
       // Fetch trading data from the panel server API
       const dataResponse = await fetch('./api/data');

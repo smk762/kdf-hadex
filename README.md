@@ -107,6 +107,27 @@ The panel server supports configurable cache/TTL settings. Create `/data/panel_c
 
 If the file is missing the server falls back to sensible defaults.
 
+## Exchange Rates (recommended integration)
+
+This add-on no longer ships its own exchange‑rate sensors. Instead it **integrates with Home Assistant's official Open Exchange Rates integration**. This reduces duplication and leverages the well‑maintained HA integration.
+
+What to do:
+
+1. Obtain an OpenExchangeRates API key: `https://openexchangerates.org`
+2. Install the **Open Exchange Rates** integration in Home Assistant: Settings → Devices & Services → Add Integration → "Open Exchange Rates". Enter your API key.
+3. Enable the fiat currencies you want to use in the integration's sensor options.
+
+How the add-on uses it:
+
+- The add‑on will detect available fiat sensors provided by the Open Exchange Rates integration and write a small manifest to `/data/available_fiats.json`.
+- The add‑on UI will read `/api/available_fiats` (panel server proxy) and populate a fiat selection dropdown in the add‑on settings.
+- If the Open Exchange Rates integration is not installed, the add‑on will gracefully fall back and display `N/A` where fiat values would otherwise be shown, and provide instructions to install the integration.
+
+Security and notes:
+
+- Installing the official integration is the recommended, privacy‑aware approach. The add‑on will not auto‑install anything into your Home Assistant configuration; installation is always opt‑in.
+- If you prefer not to install the integration, the add‑on continues to work but fiat fields will show `N/A`.
+
 ### Features
 
 - **Real-time Orderbooks**: Live orderbook data for all supported cryptocurrencies
@@ -148,4 +169,4 @@ For users who prefer individual cards in their dashboards, custom Lovelace cards
 
 ## Optional features:
 
-Refer to [EXCHANGE_RATES_README.md](docs/EXCHANGE_RATES_README.md) for how to get an API key from [Open Exchange Rates](https://openexchangerates.org/) and set your local fiat currency in this Addon.
+For exchange rates, this add-on relies on Home Assistant's official Open Exchange Rates integration. See the "Exchange Rates (recommended integration)" section above for details.

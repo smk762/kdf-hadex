@@ -75,8 +75,6 @@ if [[ -f "$OPTIONS_FILE" ]]; then
         HAOS_IP=$(jq -r '.haos_ip // "0.0.0.0"' "$OPTIONS_FILE" 2>/dev/null || echo "0.0.0.0")
 
         # Exchange rate configuration
-        ENABLE_EXCHANGE_RATES=$(jq -r '.enable_exchange_rates // false' "$OPTIONS_FILE" 2>/dev/null || echo false)
-        EXCHANGE_RATES_API_KEY=$(jq -r '.exchange_rates_api_key // ""' "$OPTIONS_FILE" 2>/dev/null || echo "")
         SELECTED_FIAT_CURRENCY=$(jq -r '.selected_fiat_currency // "AUD"' "$OPTIONS_FILE" 2>/dev/null || echo "AUD")
     else
         echo "[kdf] ERROR: jq not available; cannot reliably parse /data/options.json"
@@ -95,9 +93,7 @@ echo "[kdf] Debug: Configuration values received:"
 echo "[kdf] RPC_PASS length: ${#RPC_PASS}"
 echo "[kdf] WALLET_PASS length: ${#WALLET_PASS}"
 echo "[kdf] BIP39_MNEMONIC length: ${#BIP39_MNEMONIC}"
-echo "[kdf] Exchange rates enabled: ${ENABLE_EXCHANGE_RATES}"
 echo "[kdf] Selected fiat currency: ${SELECTED_FIAT_CURRENCY}"
-echo "[kdf] Exchange API key length: ${#EXCHANGE_RATES_API_KEY}"
 
 # Validate required configuration
 echo "[kdf] Validating configuration..."
@@ -124,55 +120,6 @@ if [[ -z "${BIP39_MNEMONIC}" ]]; then
 fi
 
 echo "[kdf] Configuration validation passed"
-
-# Check for exchange rate configuration changes
-EXCHANGE_CONFIG_FILE="/data/exchange_rates_config"
-CURRENT_CONFIG="${ENABLE_EXCHANGE_RATES}|${EXCHANGE_RATES_API_KEY}|${SELECTED_FIAT_CURRENCY}"
-
-if [[ -f "${EXCHANGE_CONFIG_FILE}" ]]; then
-    PREVIOUS_CONFIG=$(cat "${EXCHANGE_CONFIG_FILE}")
-    if [[ "${CURRENT_CONFIG}" != "${PREVIOUS_CONFIG}" ]]; then
-        echo "[kdf] Exchange rate configuration has changed"
-        echo "[kdf] Previous: ${PREVIOUS_CONFIG}"
-        echo "[kdf] Current:  ${CURRENT_CONFIG}"
-        echo "[kdf] This change requires a restart to take effect"
-        echo "[kdf] Please restart the addon to apply the new exchange rate configuration"
-    fi
-fi
-
-# Save current configuration
-echo "${CURRENT_CONFIG}" > "${EXCHANGE_CONFIG_FILE}"
-
-# Generate exchange rate sensors configuration if enabled
-if [[ "${ENABLE_EXCHANGE_RATES}" == "true" ]]; then
-    echo "[kdf] Exchange rates enabled, generating sensor configuration..."
-    
-    # Validate API key
-    if [[ -z "${EXCHANGE_RATES_API_KEY}" || "${EXCHANGE_RATES_API_KEY}" == "CHANGE_ME" ]]; then
-        echo "[kdf] ERROR: Exchange rates enabled but no valid API key provided"
-        echo "[kdf] Please configure your OpenExchangeRates API key in the addon configuration"
-        echo "[kdf] Exchange rate sensors will not be created without a valid API key"
-    else
-        # Set environment variables for the Python script
-        export ENABLE_EXCHANGE_RATES="${ENABLE_EXCHANGE_RATES}"
-        export EXCHANGE_RATES_API_KEY="${EXCHANGE_RATES_API_KEY}"
-        export SELECTED_FIAT_CURRENCY="${SELECTED_FIAT_CURRENCY}"
-        
-        # Run the exchange rate sensor generator using virtualenv python if available
-        echo "[kdf] Running exchange rate sensor generator..."
-        PYTHON_BIN="python3"
-        if [[ -x "/opt/kdf-venv/bin/python" ]]; then
-            PYTHON_BIN="/opt/kdf-venv/bin/python"
-        fi
-        if "$PYTHON_BIN" /usr/local/bin/generate-exchange-sensors.py; then
-            echo "[kdf] Exchange rate sensors configuration generated successfully"
-        else
-            echo "[kdf] Warning: Failed to generate exchange rate sensors configuration"
-        fi
-    fi
-else
-    echo "[kdf] Exchange rates disabled, skipping sensor generation"
-fi
 
 # Debug: Show configuration values (without exposing secrets)
 echo "[kdf] Configuration loaded: RPC_PORT=${RPC_PORT}, NETID=${NETID}"
@@ -294,12 +241,10 @@ echo "[kdf] Setup running marker removed"
 
 export KDF_RPC_PORT="${RPC_PORT}"
 export KDF_LOG_LEVEL="${LOG_LEVEL}"
-export KDF_RPC_PASSWORD="${RPC_PASS}"
+# Do not export RPC password; services should read /data/options.json for `rpc_password` when needed.
 
-# Export exchange rate configuration for other services
-export ENABLE_EXCHANGE_RATES="${ENABLE_EXCHANGE_RATES}"
-export EXCHANGE_RATES_API_KEY="${EXCHANGE_RATES_API_KEY}"
-export SELECTED_FIAT_CURRENCY="${SELECTED_FIAT_CURRENCY}"
+# `SELECTED_FIAT_CURRENCY` is persisted in /data/options.json and read by services when needed.
+# Do not export it as an environment variable to avoid leaking configuration into service environments.
 
 # Ensure kdf_method_versions.json exists in /data and is refreshed when the image example changes
 EXAMPLE_METHODS_FILE="/root/www/kdf_method_versions.example.json"

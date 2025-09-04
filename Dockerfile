@@ -61,11 +61,11 @@ RUN mkdir -p /root/www && \
 # Fix permissions for init scripts and service files
 RUN set -ex && \
     # chmod only existing service directories (ignore missing ones) \
-    for d in /etc/cont-init.d /etc/services.d/kdf /etc/services.d/ha-integration /etc/services.d/panel-server /etc/services.d/exchange-rates; do \
+    for d in /etc/cont-init.d /etc/services.d/kdf /etc/services.d/ha-integration /etc/services.d/panel-server; do \
       [ -d "$d" ] && chmod -R +x "$d" || true; \
     done && \
     # make scripts executable (these should exist in image) \
-    chmod +x /usr/local/bin/kdf-version /usr/local/bin/kdf-ha-integration.py /usr/local/bin/panel-server.py /usr/local/bin/configure-panel.py /usr/local/bin/test-panel-server.py /usr/local/bin/generate-exchange-sensors.py || true
+    chmod +x /usr/local/bin/kdf-version /usr/local/bin/kdf-ha-integration.py /usr/local/bin/panel-server.py /usr/local/bin/configure-panel.py /usr/local/bin/test-panel-server.py || true
 
 
 # Expose KDF RPC port and ingress port

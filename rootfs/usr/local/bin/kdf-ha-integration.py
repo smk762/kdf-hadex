@@ -50,8 +50,6 @@ class KDFHAIntegration:
         self.update_interval = 30  # seconds
         
         # Exchange rate configuration (use /data/options.json as authoritative)
-        self.enable_exchange_rates = bool(opts.get('enable_exchange_rates', False))
-        self.exchange_rates_api_key = opts.get('exchange_rates_api_key', '')
         self.selected_fiat_currency = opts.get('selected_fiat_currency', 'AUD')
         
         # For add-ons, we need to use the Supervisor API to create entities
@@ -135,24 +133,6 @@ class KDFHAIntegration:
             logger.error(f"KDF connection test failed: {e}")
             return False
     
-    def create_ha_entities(self):
-        """Create Home Assistant entities for KDF data"""
-        logger.info("KDF Home Assistant integration is running")
-        logger.info("Entities will be created via Home Assistant's add-on integration system")
-        
-        # Log exchange rate configuration
-        if self.enable_exchange_rates:
-            logger.info(f"Exchange rates enabled for currency: {self.selected_fiat_currency}")
-            if self.exchange_rates_api_key:
-                logger.info("Exchange rates API key configured")
-            else:
-                logger.error("Exchange rates enabled but no API key provided in /data/options.json")
-                # Fail-fast: require API key in options.json when enabled
-                raise RuntimeError("Exchange rates enabled but no API key provided in options.json")
-        else:
-            logger.info("Exchange rates disabled")
-        
-        self.entities_created = True
     
     def create_ha_entity(self, entity_data: Dict[str, Any]):
         """Create a single Home Assistant entity"""
@@ -419,6 +399,9 @@ class KDFHAIntegration:
                 else:
                     payload = {'method': method, 'mmrpc': '2.0', 'params': params or {}}
 
+            # `version` method does not require RPC auth; enforce rpc_password is present for other methods
+            if method != 'version' and not self.rpc_password:
+                raise Exception(f"rpc_password is missing in /data/options.json; required for RPC method: {method}. Please set 'rpc_password' in addon options.")
             if self.rpc_password:
                 payload['userpass'] = self.rpc_password
 
@@ -515,4 +498,8 @@ class KDFHAIntegration:
 
 if __name__ == "__main__":
     integration = KDFHAIntegration()
+    # Early fail: ensure rpc_password is configured for normal operation (version method is exception)
+    if not integration.rpc_password:
+        print('[kdf-ha] ERROR: rpc_password is missing in /data/options.json. The HA integration requires rpc_password for authenticated KDF RPC calls (the "version" method is an exception). Please set "rpc_password" in addon options and restart the addon.')
+        sys.exit(1)
     integration.run()

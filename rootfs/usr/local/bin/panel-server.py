@@ -346,6 +346,61 @@ class KDFIngressHandler(BaseHTTPRequestHandler):
                         except Exception:
                             pass
                 return
+            elif parsed_path.path == '/api/set_fiat':
+                # Set selected fiat in /data/options.json (authoritative source)
+                length = int(self.headers.get('Content-Length', 0))
+                body = self.rfile.read(length) if length > 0 else b''
+                try:
+                    payload = json.loads(body.decode('utf-8') or '{}')
+                except Exception as e:
+                    print(f"Warning: failed to parse JSON body for set_fiat: {e}")
+                    self.send_error(400, 'Invalid JSON')
+                    return
+
+                fiat = payload.get('fiat')
+                if not fiat or not isinstance(fiat, str):
+                    self.send_error(400, 'Missing fiat')
+                    return
+
+                opts_path = '/data/options.json'
+                try:
+                    opts = {}
+                    if os.path.exists(opts_path):
+                        with open(opts_path, 'r') as f:
+                            opts = json.load(f)
+                    opts['selected_fiat_currency'] = fiat
+                    # write back
+                    with open(opts_path, 'w') as f:
+                        json.dump(opts, f, indent=2)
+                    response = json.dumps({'result': 'ok', 'selected_fiat_currency': fiat})
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', str(len(response)))
+                    self.end_headers()
+                    self.wfile.write(response.encode('utf-8'))
+                except Exception as e:
+                    print(f"Error setting fiat in options.json: {e}")
+                    self.send_error(500, 'Failed to update options')
+                return
+            elif parsed_path.path == '/api/available_fiats':
+                # Return list of available fiat sensors detected by the addon
+                try:
+                    cfg_path = '/data/available_fiats.json'
+                    if os.path.exists(cfg_path):
+                        with open(cfg_path, 'r') as f:
+                            data = json.load(f)
+                    else:
+                        data = []
+                    response = json.dumps({'available_fiats': data})
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', str(len(response)))
+                    self.end_headers()
+                    self.wfile.write(response.encode('utf-8'))
+                except Exception as e:
+                    print(f"Error serving available_fiats: {e}")
+                    self.send_error(500, 'Error serving available_fiats')
+                return
 
             elif parsed_path.path == '/api/best_orders':
                 length = int(self.headers.get('Content-Length', 0))
@@ -505,55 +560,6 @@ class KDFIngressHandler(BaseHTTPRequestHandler):
             print(f"Error serving status API: {e}")
             self.send_error(500, "Error serving status")
 
-    def serve_api_health(self):
-        """Serve health information for optional services (exchange rates)"""
-        try:
-            # Prefer reading Supervisor-provided options.json (more reliable than envs)
-            opts = load_addon_options()
-            enabled = False
-            api_key = ''
-            if opts:
-                enabled = opts.get('enable_exchange_rates', False) is True
-                api_key = opts.get('exchange_rates_api_key', '')
-            else:
-                enabled = 'false'
-                api_key = ''
-
-            if not enabled:
-                health = {
-                    'exchange_rates': {
-                        'status': 'disabled',
-                        'message': 'Exchange rates are disabled; restart addon to enable',
-                        'link': 'https://openexchangerates.org'
-                    }
-                }
-            else:
-                if not api_key or api_key == 'CHANGE_ME':
-                    health = {
-                        'exchange_rates': {
-                            'status': 'misconfigured',
-                            'message': 'Exchange rates enabled but API key missing or invalid',
-                            'link': 'https://openexchangerates.org'
-                        }
-                    }
-                else:
-                    health = {
-                        'exchange_rates': {
-                            'status': 'ok',
-                            'message': 'Exchange rates enabled and configured'
-                        }
-                    }
-
-            response = json.dumps(health)
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Content-Length', str(len(response)))
-            self.end_headers()
-            self.wfile.write(response.encode('utf-8'))
-        except Exception as e:
-            print(f"Error serving health API: {e}")
-            self.send_error(500, "Error serving health")
-    
     def get_kdf_status(self):
         """Get KDF status from the HA integration"""
         try:
@@ -763,6 +769,10 @@ class KDFIngressHandler(BaseHTTPRequestHandler):
             opts = load_addon_options()
             rpc_port = str(opts.get('rpc_port', os.getenv('KDF_RPC_PORT', '7783')))
             rpc_password = opts.get('rpc_password', '')
+
+            # Require rpc_password for all methods except 'version'
+            if method != 'version' and not rpc_password:
+                raise Exception(f"rpc_password is missing in /data/options.json; required for RPC method: {method}. Please set 'rpc_password' in addon options.")
             rpc_url = f'http://127.0.0.1:{rpc_port}/'
 
             # Decide method version: consult METHOD_VERSIONS override, then fallback to LEGACY_METHODS
@@ -902,6 +912,12 @@ def start_ingress_server():
 if __name__ == "__main__":
     try:
         print("KDF Panel Server starting...")
+        # Early fail: ensure rpc_password is configured for normal operation.
+        opts = load_addon_options()
+        rpc_password = opts.get('rpc_password', '')
+        if not rpc_password:
+            print("ERROR: rpc_password is missing in /data/options.json. The panel server requires 'rpc_password' for authenticated KDF RPC calls (the 'version' method is an exception). Please set 'rpc_password' in addon options and restart the addon.")
+            sys.exit(1)
         start_ingress_server()
     except Exception as e:
         print(f"Fatal error in panel server: {e}")

@@ -93,6 +93,13 @@
         <p>Data is collected every 30 seconds and displayed here for monitoring your trading activity.</p>
         <p><a href="./peers.html" id="peers-demo-link">Open Peers Demo</a></p>
         <p>Card demos: <a href="./orderbook.html">Orderbook</a> | <a href="./peers.html">Peers</a> | <a href="./kdf-panel.html">Full Panel</a></p>
+        <div style="margin-top:8px;">
+            <label for="fiat-select" style="font-weight:600;">Selected Fiat</label>
+            <select id="fiat-select" style="margin-left:8px;min-width:160px;">
+                <option value="">No fiat available</option>
+            </select>
+            <div id="fiat-help" style="font-size:0.85rem;color:#ccc;margin-top:6px;">Install the Open Exchange Rates integration and enable preferred fiats to populate this list.</div>
+        </div>
     </div>
 
     <div class="status-card">
@@ -137,6 +144,56 @@
                     document.getElementById('peer-count').textContent = `${data.peer_count} peers`;
                 }
                 document.getElementById('enabled-coins').textContent = (data.enabled_coins || []).join(', ');
+                // Fetch available fiats from panel server to populate addon settings UI later
+                try {
+                    const af = await fetch('./api/available_fiats');
+                    if (af.ok) {
+                        const afj = await af.json();
+                        window.__hadex_available_fiats = afj.available_fiats || [];
+                    } else {
+                        window.__hadex_available_fiats = [];
+                    }
+                } catch (e) {
+                    window.__hadex_available_fiats = [];
+                }
+                // Populate fiat dropdown from available fiats
+                try {
+                    const sel = document.getElementById('fiat-select');
+                    sel.innerHTML = '';
+                    const arr = window.__hadex_available_fiats || [];
+                    if (!arr || arr.length === 0) {
+                        const opt = document.createElement('option');
+                        opt.value = '';
+                        opt.textContent = 'No fiat sensors available';
+                        sel.appendChild(opt);
+                    } else {
+                        arr.forEach(item => {
+                            const o = document.createElement('option');
+                            o.value = item.currency || item.entity_id;
+                            o.textContent = item.currency || item.entity_id;
+                            sel.appendChild(o);
+                        });
+                        // set selected to options.json value if exists
+                        try {
+                            const optsResp = await fetch('./api/options');
+                            if (optsResp.ok) {
+                                const oj = await optsResp.json();
+                                const selFiat = (oj.options || {}).selected_fiat_currency;
+                                if (selFiat) sel.value = selFiat;
+                            }
+                        } catch (e) {}
+                        sel.addEventListener('change', async function () {
+                            const v = sel.value;
+                            try {
+                                await fetch('./api/set_fiat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fiat: v }) });
+                            } catch (e) {
+                                console.error('Failed to save fiat selection', e);
+                            }
+                        });
+                    }
+                } catch (e) {
+                    console.error('Failed to populate fiat dropdown', e);
+                }
             } catch (error) {
                 console.error('Error fetching status:', error);
                 document.getElementById('connection-status').textContent = 'Error';

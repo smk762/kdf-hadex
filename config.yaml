@@ -45,6 +45,7 @@ options:
   wallet_password: "CHANGE_ME"
   bip39_mnemonic: ""
   haos_ip: "0.0.0.0"
+  selected_fiat_currency: "AUD"
 
   seednodes: 
     - "seed01.kmdefi.net"
@@ -53,10 +54,6 @@ options:
     - "drogon.dragon-seed.com"
     - "falkor.dragon-seed.com"
 
-  # Exchange rate configuration
-  enable_exchange_rates: false
-  exchange_rates_api_key: ""
-  selected_fiat_currency: "AUD"
 
 schema:
   rpc_password: password
@@ -70,8 +67,5 @@ schema:
   haos_ip: str
 
   seednodes: [str]
+  selected_fiat_currency: str
   
-  # Exchange rate schema
-  enable_exchange_rates: bool
-  exchange_rates_api_key: password
-  selected_fiat_currency: list(AUD|EUR|GBP|JPY|CAD|CHF|CNY|NZD|SGD|HKD|KRW|INR|BRL|MXN|RUB|ZAR|TRY|SEK|NOK|DKK|PLN|CZK|HUF)
