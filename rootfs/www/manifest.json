@@ -5,6 +5,18 @@
   "author": "KDF HADEX",
   "url": "https://github.com/smk762/kdf-hadex",
   "main": "kdf-orderbook-card.js",
+  "resources": [
+    "kdf-orderbook-card.js",
+    "kdf-orderbook-card-editor.js",
+    "kdf-best-orders-card.js",
+    "kdf-best-orders-card-editor.js",
+    "kdf-my-orders-card.js",
+    "kdf-active-swaps-card.js",
+    "kdf-recent-swaps-card.js",
+    "kdf-trading-actions-card.js",
+    "kdf-peers-card.js",
+    "kdf-raw-rpc-card.js"
+  ],
   "type": "module",
   "hacs": "1.6.0",
   "homeassistant": "2023.1.0"

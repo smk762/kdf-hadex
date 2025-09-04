@@ -267,7 +267,7 @@ class KDFBestOrdersCard extends HTMLElement {
 
     async fetchBestOrders() {
         try {
-            const url = (this._config.panel_api_base || '') + '/api/best_orders';
+            const url = (this._config.panel_api_base || '') + '/api/kdf_request';
             // Build params per KDF best_orders API
             const params = {
                 coin: this._config.coin || 'DGB',
@@ -278,7 +278,7 @@ class KDFBestOrdersCard extends HTMLElement {
             const response = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ params })
+                body: JSON.stringify({ method: 'best_orders', params })
             });
 
             if (!response.ok) {

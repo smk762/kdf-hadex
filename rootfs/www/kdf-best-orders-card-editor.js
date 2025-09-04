@@ -95,25 +95,19 @@ class KDFBestOrdersCardEditor extends HTMLElement {
                 });
             };
 
-            // Fetch enabled_coins or tickers from panel API (use panel_api_base if provided)
+            // Fetch enabled_coins using kdf_request via panel server
             const panelBase = this._config.panel_api_base || '/';
             const baseNoSlash = (panelBase.replace(/\/$/, '') || '');
-            const tryEnabled = baseNoSlash + '/api/enabled_coins';
-            const tryStatus = baseNoSlash + '/api/status';
+            const tryKdfRequest = baseNoSlash + '/api/kdf_request';
 
-            fetch(tryEnabled, { method: 'GET' }).then(r => r.json()).then(js => {
-                if (js && Array.isArray(js.enabled_coins)) {
-                    populate(js.enabled_coins);
+            fetch(tryKdfRequest, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method: 'get_enabled_coins' }) }).then(r => r.json()).then(js => {
+                if (js && js.result) {
+                    const arr = Array.isArray(js.result) ? js.result.map(c => (c.ticker || c.coin || c)) : [];
+                    populate(arr);
                 } else {
-                    fetch(tryStatus, { method: 'GET' }).then(r => r.json()).then(sj => {
-                        if (sj && Array.isArray(sj.enabled_coins)) populate(sj.enabled_coins); else populate([]);
-                    }).catch(() => populate([]));
+                    populate([]);
                 }
-            }).catch(() => {
-                fetch(tryStatus, { method: 'GET' }).then(r => r.json()).then(sj => {
-                    if (sj && Array.isArray(sj.enabled_coins)) populate(sj.enabled_coins); else populate([]);
-                }).catch(() => populate([]));
-            });
+            }).catch(() => populate([]));
         }
     }
 

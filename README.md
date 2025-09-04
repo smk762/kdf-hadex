@@ -84,14 +84,16 @@ When enabled, the add-on creates the following Home Assistant entities:
 The add-on includes a lightweight panel server that the frontend cards use for authenticated RPC access. Frontend cards and the dashboard should point to the panel API base (`panel_api_base`) rather than embedding RPC credentials.
 
 - **Panel API base**: When configuring cards or the demo panel, set `panel_api_base` to the panel root (default `/`). The panel server proxies authenticated RPC calls to KDF and provides the following endpoints:
-  - `GET /api/status` - connection, version, peers
-  - `GET /api/data` - trading summary (active swaps, my orders, recent swaps)
+  - `GET /api/version` - KDF version
   - `GET /api/peers` - cleaned peer list
-  - `POST /api/orderbook` - orderbook (params: `{params:{base,rel}}`)
-  - `POST /api/best_orders` - best orders (params: `{params:{coin,action,request_by}}`)
-  - `POST /api/action` - generic RPC action forwarder (method + params)
+  - `GET /api/tickers` - available tickers
+  - `GET /api/available_fiats` - detected fiat sensors
 
-Do NOT store `rpc_password` in card configs; rely on the panel server to perform authenticated calls.
+For authenticated RPC methods use a single forwarder:
+
+- `POST /api/kdf_request` — send a raw JSON RPC request body (e.g. `{ "method": "orderbook", "params": { "base": "BTC", "rel": "LTC" } }`). The panel server injects `userpass` from `/data/options.json` if missing. Methods other than `version` require `rpc_password` in `options.json`.
+
+Do NOT store `rpc_password` in card configs; the panel server injects it from `options.json` when forwarding requests.
 
 ### Caching / Refresh Configuration
 
@@ -170,3 +172,53 @@ For users who prefer individual cards in their dashboards, custom Lovelace cards
 ## Optional features:
 
 For exchange rates, this add-on relies on Home Assistant's official Open Exchange Rates integration. See the "Exchange Rates (recommended integration)" section above for details.
+
+## Creating Home Assistant entities from the Panel API
+
+If you want Home Assistant entities for monitoring or automations, create `REST` and `template` sensors that query the panel server's API. The add-on purposely does not create Supervisor entities to minimise privileges.
+
+Example `configuration.yaml` snippets (replace `panel_api_base` if you changed it):
+
+```yaml
+# REST sensor to fetch status from the panel server
+sensor:
+  - platform: rest
+    name: hadex_status_raw
+    resource: http://127.0.0.1:8099/api/status
+    method: GET
+    scan_interval: 30
+    value_template: "{{ value_json.status }}"
+    json_attributes_path: "$."
+    json_attributes: 
+      - version
+      - peer_count
+      - enabled_coins
+
+# Template sensor that exposes the selected fiat (from options.json via panel)
+  - platform: rest
+    name: hadex_options_raw
+    resource: http://127.0.0.1:8099/api/options
+    method: GET
+    scan_interval: 60
+    value_template: "{{ (value_json.options.selected_fiat_currency) | default('N/A') }}"
+
+# Friendly template sensors
+template:
+  - sensor:
+      - name: "HADEX Status"
+        state: "{{ states('sensor.hadex_status_raw') }}"
+        attributes:
+          version: "{{ state_attr('sensor.hadex_status_raw','version') }}"
+          peer_count: "{{ state_attr('sensor.hadex_status_raw','peer_count') }}"
+          enabled_coins: "{{ state_attr('sensor.hadex_status_raw','enabled_coins') }}"
+
+      - name: "HADEX Selected Fiat"
+        state: "{{ states('sensor.hadex_options_raw') }}"
+        attributes:
+          info: "Selected fiat from addon options"
+```
+
+Notes:
+- Use the panel server base (`http://127.0.0.1:8099` inside the add-on container). When accessing from Home Assistant, replace with the add‑on ingress path or the add‑on host IP as appropriate.
+- The `hadex_status_raw` REST sensor stores the full JSON in attributes (version, peer_count, enabled_coins). Use `template` sensors to expose friendly attributes.
+- For fiat values, install Home Assistant's Open Exchange Rates integration and use its sensors to compute fiat conversions in templates or automations.

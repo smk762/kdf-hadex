@@ -24,8 +24,21 @@ chmod +x /usr/local/bin/panel-server.py
 
 # Start the panel server
 echo "[panel-server] Starting KDF panel server..."
-echo "[panel-server] Python version: $(python3 --version)"
-echo "[panel-server] Panel server script exists: $(ls -la /usr/local/bin/panel-server.py)"
-echo "[panel-server] Dashboard file exists: $(ls -la /root/www/kdf-panel.html)"
-echo "[panel-server] Starting full panel server..."
-exec python3 /usr/local/bin/panel-server.py
+# Prefer virtualenv python if available
+if [[ -x "/opt/kdf-venv/bin/python3" ]]; then
+    echo "[panel-server] Using venv python: /opt/kdf-venv/bin/python3"
+    echo "[panel-server] Python version: $(/opt/kdf-venv/bin/python3 --version)"
+    echo "[panel-server] Panel server script exists: $(ls -la /usr/local/bin/panel-server.py)"
+    echo "[panel-server] Dashboard file exists: $(ls -la /root/www/kdf-panel.html)"
+    echo "[panel-server] Starting full panel server (venv)..."
+    # Launch via the venv python so the script's __main__ will start uvicorn and avoid module import issues
+    exec /opt/kdf-venv/bin/python3 /usr/local/bin/panel-server.py
+else
+    echo "[panel-server] venv python not found; falling back to system python3"
+    echo "[panel-server] Python version: $(python3 --version)"
+    echo "[panel-server] Panel server script exists: $(ls -la /usr/local/bin/panel-server.py)"
+    echo "[panel-server] Dashboard file exists: $(ls -la /root/www/kdf-panel.html)"
+    echo "[panel-server] Starting full panel server..."
+    # Run the panel-server via system python so the script's __main__ will launch uvicorn
+    exec python3 /usr/local/bin/panel-server.py
+fi

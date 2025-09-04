@@ -18,7 +18,7 @@ RUN apt-get update && apt-get install -y \
 # Create virtual environment and install pykomodefi, PyYAML and requests
 RUN python3 -m venv /opt/kdf-venv \
     && /opt/kdf-venv/bin/pip install --upgrade pip \
-    && /opt/kdf-venv/bin/pip install pykomodefi PyYAML requests
+    && /opt/kdf-venv/bin/pip install pykomodefi PyYAML requests fastapi uvicorn[standard]
 
 # Install bashio for Home Assistant integration
 RUN curl -J -L -o /tmp/bashio.tar.gz \

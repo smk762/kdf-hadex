@@ -216,7 +216,7 @@ class KDFRecentSwapsCard extends HTMLElement {
     async loadRecentSwaps() {
         try {
             // Fetch data from panel server API with retry/backoff
-            const payload = await this.fetchWithBackoff((this._config.panel_api_base || '') + '/api/data', { retries: 3, minTimeout: 500 });
+            const payload = await this.fetchWithBackoff((this._config.panel_api_base || '') + '/api/kdf_request', { method: 'POST', body: JSON.stringify({ method: 'my_recent_swaps' }) }, { retries: 3, minTimeout: 500 });
             if (payload && payload.recent_swaps_full) {
                 const transformed = this.transformRecentSwapsData(payload.recent_swaps_full);
                 this.displayRecentSwaps(transformed);

@@ -144,6 +144,16 @@ cards:
     max_orders: 5
 ```
 
+### Raw RPC Debug Card
+
+```yaml
+- type: custom:kdf-raw-rpc-card
+  title: "KDF Raw RPC"
+  panel_api_base: "/"
+```
+
+This card allows pasting raw JSON RPC request bodies, sending them to the add-on's `POST /api/kdf_request` endpoint, and viewing the raw response. Useful for debugging and reproducing API calls.
+
 ## API Integration
 
 The cards and demos integrate with the add-on's Panel Server which performs authenticated RPC requests to KDF on behalf of the browser. This avoids exposing `rpc_password` to the client.
@@ -152,18 +162,20 @@ To enable live data in your Lovelace dashboards:
 
 1. Ensure the KDF add-on is running
 2. In your card configuration set `panel_api_base` to the panel server base (default `/`)
-3. The card will call endpoints on the panel server which proxy RPC calls to KDF
+3. The cards send authenticated KDF requests to the panel server via `POST /api/kdf_request` (single forwarder). For safe, unauthenticated info the following GET endpoints are available:
 
-### Panel Server Endpoints (important)
-
-- `GET /api/status` - connection, version, peer_count, enabled_coins
-- `GET /api/data` - trading summary (active_swaps, my_orders, recent_swaps)
+- `GET /api/version` - KDF version
 - `GET /api/peers` - cleaned peer list
-- `POST /api/orderbook` - params: `{ params: { base: "BTC", rel: "LTC" } }`
-- `POST /api/best_orders` - params: `{ params: { coin: "DGB", action: "buy", request_by: { type: "number", value: 10 } } }`
-- `POST /api/action` - generic RPC forwarder: `{ method: "cancel_order", params: { uuid: "..." } }`
+- `GET /api/tickers` - available tickers
+- `GET /api/available_fiats` - detected fiat sensors
 
-Do not store `rpc_password` in card configs; the panel server handles authentication using the add-on's `options.json`.
+For all other KDF RPC methods use `POST /api/kdf_request` with a JSON-RPC style body, e.g.:
+
+```json
+{ "method": "orderbook", "params": { "base": "BTC", "rel": "LTC" } }
+```
+
+Do not store `rpc_password` in card configs; the panel server injects it from `options.json` when forwarding requests.
 
 ## Troubleshooting
 

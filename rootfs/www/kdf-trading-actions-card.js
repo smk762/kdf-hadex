@@ -289,7 +289,7 @@ class KDFTradingActionsCard extends HTMLElement {
         try {
             this.showStatus('sell-status', 'Placing sell order...', 'info');
             
-            const response = await fetch((this._config.panel_api_base || '') + '/api/action', {
+            const response = await fetch((this._config.panel_api_base || '') + '/api/kdf_request', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ method: 'sell', params: { base, rel, volume, price } })
@@ -331,7 +331,7 @@ class KDFTradingActionsCard extends HTMLElement {
         try {
             this.showStatus('buy-status', 'Placing buy order...', 'info');
             
-            const response = await fetch((this._config.panel_api_base || '') + '/api/action', {
+            const response = await fetch((this._config.panel_api_base || '') + '/api/kdf_request', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ method: 'buy', params: { base, rel, volume, price } })

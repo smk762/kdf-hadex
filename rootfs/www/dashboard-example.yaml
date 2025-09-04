@@ -114,3 +114,8 @@ views:
           - Make sure your KDF add-on is running and accessible
           - Update the RPC password to match your KDF configuration
           - The card currently uses mock data - real API integration coming soon
+
+      # Raw RPC Debug Card
+      - type: custom:kdf-raw-rpc-card
+        title: "KDF Raw RPC"
+        panel_api_base: "/"

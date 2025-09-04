@@ -238,7 +238,7 @@ class KDFMyOrdersCard extends HTMLElement {
     async loadMyOrders() {
         try {
             // Fetch from panel server API with retry/backoff
-            const payload = await this.fetchWithBackoff((this._config.panel_api_base || '') + '/api/data', { retries: 3, minTimeout: 500 });
+            const payload = await this.fetchWithBackoff((this._config.panel_api_base || '') + '/api/kdf_request', { method: 'POST', body: JSON.stringify({ method: 'my_orders' }) }, { retries: 3, minTimeout: 500 });
             if (payload && payload.my_orders_full) {
                 const transformed = this.transformMyOrdersData(payload.my_orders_full);
                 this.displayMyOrders(transformed);
@@ -406,7 +406,7 @@ class KDFMyOrdersCard extends HTMLElement {
 
         try {
             // Forward action to panel-server which performs authenticated RPC
-            const response = await fetch((this._config.panel_api_base || '') + '/api/action', {
+            const response = await fetch((this._config.panel_api_base || '') + '/api/kdf_request', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ method: 'cancel_order', params: { uuid } })
@@ -437,7 +437,7 @@ class KDFMyOrdersCard extends HTMLElement {
         }
 
         try {
-            const response = await fetch((this._config.panel_api_base || '') + '/api/action', {
+            const response = await fetch((this._config.panel_api_base || '') + '/api/kdf_request', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ method: 'cancel_all_orders' })

@@ -164,7 +164,7 @@ class KDFPanel extends LitElement {
     
     try {
       // Fetch status data from the panel server API
-      const statusResponse = await fetch('./api/status');
+      const statusResponse = await fetch('./api/version');
       if (statusResponse.ok) {
         const statusData = await statusResponse.json();
         
@@ -198,27 +198,47 @@ class KDFPanel extends LitElement {
 
       
       // Fetch trading data from the panel server API
-      const dataResponse = await fetch('./api/data');
-      if (dataResponse.ok) {
-        const tradingData = await dataResponse.json();
-        
-        // Update active swaps
-        const activeSwapsElement = this.shadowRoot.getElementById('active-swaps');
-        if (activeSwapsElement) {
-          activeSwapsElement.textContent = tradingData.active_swaps;
+      // Fetch trading data individually via kdf_request
+      try {
+        const activeResp = await fetch('./api/kdf_request', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method: 'active_swaps' }) });
+        if (activeResp.ok) {
+          const activeData = await activeResp.json();
+          const activeSwapsElement = this.shadowRoot.getElementById('active-swaps');
+          if (activeSwapsElement) {
+            const count = Array.isArray(activeData.result && activeData.result.uuids ? activeData.result.uuids : activeData.result) ? (activeData.result.uuids ? activeData.result.uuids.length : (Array.isArray(activeData.result) ? activeData.result.length : 0)) : 0;
+            activeSwapsElement.textContent = count;
+          }
         }
-        
-        // Update my orders
-        const myOrdersElement = this.shadowRoot.getElementById('my-orders');
-        if (myOrdersElement) {
-          myOrdersElement.textContent = tradingData.my_orders;
+
+        const myOrdersResp = await fetch('./api/kdf_request', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method: 'my_orders' }) });
+        if (myOrdersResp.ok) {
+          const myData = await myOrdersResp.json();
+          const myOrdersElement = this.shadowRoot.getElementById('my-orders');
+          if (myOrdersElement) {
+            // my_orders may be dict with maker_orders/taker_orders
+            let count = 0;
+            if (myData.result && typeof myData.result === 'object') {
+              const maker = myData.result.maker_orders || {};
+              const taker = myData.result.taker_orders || {};
+              const makerCount = Array.isArray(maker) ? maker.length : Object.values(maker).reduce((s, v) => s + (Array.isArray(v) ? v.length : 0), 0);
+              const takerCount = Array.isArray(taker) ? taker.length : Object.values(taker).reduce((s, v) => s + (Array.isArray(v) ? v.length : 0), 0);
+              count = makerCount + takerCount;
+            }
+            myOrdersElement.textContent = count;
+          }
         }
-        
-        // Update recent swaps
-        const recentSwapsElement = this.shadowRoot.getElementById('recent-swaps');
-        if (recentSwapsElement) {
-          recentSwapsElement.textContent = tradingData.recent_swaps;
+
+        const recentResp = await fetch('./api/kdf_request', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method: 'my_recent_swaps' }) });
+        if (recentResp.ok) {
+          const recentData = await recentResp.json();
+          const recentSwapsElement = this.shadowRoot.getElementById('recent-swaps');
+          if (recentSwapsElement) {
+            const swaps = (recentData.result && recentData.result.swaps) ? recentData.result.swaps : (Array.isArray(recentData.result) ? recentData.result : []);
+            recentSwapsElement.textContent = Array.isArray(swaps) ? swaps.length : 0;
+          }
         }
+      } catch (e) {
+        // ignore trading data errors
       }
       
     } catch (error) {
