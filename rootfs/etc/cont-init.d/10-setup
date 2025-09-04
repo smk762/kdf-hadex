@@ -31,7 +31,9 @@ fi
 rm -f /tmp/kdf-setup-running
 
 echo "[kdf] Setup script starting..."
+echo "[kdf] Current time: $(date)"
 touch /tmp/kdf-setup-running
+echo "[kdf] Setup running marker created at /tmp/kdf-setup-running"
 
 # Load bashio for config access (with protection against multiple loads)
 echo "[kdf] Loading bashio..."
@@ -47,26 +49,55 @@ fi
 mkdir -p /data/logs
 mkdir -p /root/.kdf
 
-# Get configuration values from bashio
-echo "[kdf] Reading configuration..."
+# Check if web files exist (copied during build)
+echo "[kdf] Checking web files for panel server..."
+if [[ -f /root/www/kdf-panel.html ]]; then
+    echo "[kdf] Web files found in /root/www/"
+    ls -la /root/www/
+else
+    echo "[kdf] Warning: Web files not found in /root/www/"
+fi
 
-RPC_PASS="$(bashio::config 'rpc_password' 2>/dev/null || echo '')"
-RPC_PORT="$(bashio::config 'rpc_port' 2>/dev/null || echo '7783')"
-NETID="$(bashio::config 'netid' 2>/dev/null || echo '8762')"
-COINS_URL="$(bashio::config 'coins_url' 2>/dev/null || echo '')"
-LOG_LEVEL="$(bashio::config 'log_level' 2>/dev/null || echo 'info')"
-WALLET_NAME="$(bashio::config 'wallet_name' 2>/dev/null || echo 'HAOS_KDF_Wallet')"
-WALLET_PASS="$(bashio::config 'wallet_password' 2>/dev/null || echo '')"
-BIP39_MNEMONIC="$(bashio::config 'bip39_mnemonic' 2>/dev/null || echo '')"
-HAOS_IP="$(bashio::config 'haos_ip' 2>/dev/null || echo '0.0.0.0')"
+# Get configuration values from /data/options.json (authoritative)
+echo "[kdf] Reading configuration from /data/options.json..."
+OPTIONS_FILE="/data/options.json"
+if [[ -f "$OPTIONS_FILE" ]]; then
+    # Use jq if available for robust parsing
+    if command -v jq >/dev/null 2>&1; then
+        RPC_PASS=$(jq -r '.rpc_password // ""' "$OPTIONS_FILE" 2>/dev/null || echo "")
+        RPC_PORT=$(jq -r '.rpc_port // 7783' "$OPTIONS_FILE" 2>/dev/null || echo 7783)
+        NETID=$(jq -r '.netid // 8762' "$OPTIONS_FILE" 2>/dev/null || echo 8762)
+        COINS_URL=$(jq -r '.coins_url // ""' "$OPTIONS_FILE" 2>/dev/null || echo "")
+        LOG_LEVEL=$(jq -r '.log_level // "info"' "$OPTIONS_FILE" 2>/dev/null || echo "info")
+        WALLET_NAME=$(jq -r '.wallet_name // "HAOS_KDF_Wallet"' "$OPTIONS_FILE" 2>/dev/null || echo "HAOS_KDF_Wallet")
+        WALLET_PASS=$(jq -r '.wallet_password // ""' "$OPTIONS_FILE" 2>/dev/null || echo "")
+        BIP39_MNEMONIC=$(jq -r '.bip39_mnemonic // ""' "$OPTIONS_FILE" 2>/dev/null || echo "")
+        HAOS_IP=$(jq -r '.haos_ip // "0.0.0.0"' "$OPTIONS_FILE" 2>/dev/null || echo "0.0.0.0")
 
-echo "[kdf] Configuration loaded successfully"
+        # Exchange rate configuration
+        ENABLE_EXCHANGE_RATES=$(jq -r '.enable_exchange_rates // false' "$OPTIONS_FILE" 2>/dev/null || echo false)
+        EXCHANGE_RATES_API_KEY=$(jq -r '.exchange_rates_api_key // ""' "$OPTIONS_FILE" 2>/dev/null || echo "")
+        SELECTED_FIAT_CURRENCY=$(jq -r '.selected_fiat_currency // "AUD"' "$OPTIONS_FILE" 2>/dev/null || echo "AUD")
+    else
+        echo "[kdf] ERROR: jq not available; cannot reliably parse /data/options.json"
+        echo "[kdf] Please ensure jq is installed in the addon image"
+        exit 1
+    fi
+else
+    echo "[kdf] ERROR: /data/options.json not found; addon configuration is missing"
+    exit 1
+fi
 
-# Debug: Show what we got from bashio
+echo "[kdf] Configuration loaded successfully from $OPTIONS_FILE"
+
+# Debug: Show what we got (without printing secrets)
 echo "[kdf] Debug: Configuration values received:"
 echo "[kdf] RPC_PASS length: ${#RPC_PASS}"
 echo "[kdf] WALLET_PASS length: ${#WALLET_PASS}"
 echo "[kdf] BIP39_MNEMONIC length: ${#BIP39_MNEMONIC}"
+echo "[kdf] Exchange rates enabled: ${ENABLE_EXCHANGE_RATES}"
+echo "[kdf] Selected fiat currency: ${SELECTED_FIAT_CURRENCY}"
+echo "[kdf] Exchange API key length: ${#EXCHANGE_RATES_API_KEY}"
 
 # Validate required configuration
 echo "[kdf] Validating configuration..."
@@ -83,7 +114,65 @@ if [[ -z "${WALLET_PASS}" || "${WALLET_PASS}" == "CHANGE_ME" ]]; then
     exit 1
 fi
 
+# Require BIP39 mnemonic/passphrase to be set for deterministic wallet setup
+# Best practice: require explicit mnemonic to avoid accidental wallet creation with weak defaults
+if [[ -z "${BIP39_MNEMONIC}" ]]; then
+    echo "[kdf] ERROR: bip39_mnemonic is required and must not be empty"
+    echo "[kdf] Please set your BIP39 mnemonic in the addon configuration before starting the addon"
+    echo "[kdf] If you do not have a mnemonic and want KDF to create a wallet, consider the security implications; this addon requires an explicit mnemonic to start."
+    exit 1
+fi
+
 echo "[kdf] Configuration validation passed"
+
+# Check for exchange rate configuration changes
+EXCHANGE_CONFIG_FILE="/data/exchange_rates_config"
+CURRENT_CONFIG="${ENABLE_EXCHANGE_RATES}|${EXCHANGE_RATES_API_KEY}|${SELECTED_FIAT_CURRENCY}"
+
+if [[ -f "${EXCHANGE_CONFIG_FILE}" ]]; then
+    PREVIOUS_CONFIG=$(cat "${EXCHANGE_CONFIG_FILE}")
+    if [[ "${CURRENT_CONFIG}" != "${PREVIOUS_CONFIG}" ]]; then
+        echo "[kdf] Exchange rate configuration has changed"
+        echo "[kdf] Previous: ${PREVIOUS_CONFIG}"
+        echo "[kdf] Current:  ${CURRENT_CONFIG}"
+        echo "[kdf] This change requires a restart to take effect"
+        echo "[kdf] Please restart the addon to apply the new exchange rate configuration"
+    fi
+fi
+
+# Save current configuration
+echo "${CURRENT_CONFIG}" > "${EXCHANGE_CONFIG_FILE}"
+
+# Generate exchange rate sensors configuration if enabled
+if [[ "${ENABLE_EXCHANGE_RATES}" == "true" ]]; then
+    echo "[kdf] Exchange rates enabled, generating sensor configuration..."
+    
+    # Validate API key
+    if [[ -z "${EXCHANGE_RATES_API_KEY}" || "${EXCHANGE_RATES_API_KEY}" == "CHANGE_ME" ]]; then
+        echo "[kdf] ERROR: Exchange rates enabled but no valid API key provided"
+        echo "[kdf] Please configure your OpenExchangeRates API key in the addon configuration"
+        echo "[kdf] Exchange rate sensors will not be created without a valid API key"
+    else
+        # Set environment variables for the Python script
+        export ENABLE_EXCHANGE_RATES="${ENABLE_EXCHANGE_RATES}"
+        export EXCHANGE_RATES_API_KEY="${EXCHANGE_RATES_API_KEY}"
+        export SELECTED_FIAT_CURRENCY="${SELECTED_FIAT_CURRENCY}"
+        
+        # Run the exchange rate sensor generator using virtualenv python if available
+        echo "[kdf] Running exchange rate sensor generator..."
+        PYTHON_BIN="python3"
+        if [[ -x "/opt/kdf-venv/bin/python" ]]; then
+            PYTHON_BIN="/opt/kdf-venv/bin/python"
+        fi
+        if "$PYTHON_BIN" /usr/local/bin/generate-exchange-sensors.py; then
+            echo "[kdf] Exchange rate sensors configuration generated successfully"
+        else
+            echo "[kdf] Warning: Failed to generate exchange rate sensors configuration"
+        fi
+    fi
+else
+    echo "[kdf] Exchange rates disabled, skipping sensor generation"
+fi
 
 # Debug: Show configuration values (without exposing secrets)
 echo "[kdf] Configuration loaded: RPC_PORT=${RPC_PORT}, NETID=${NETID}"
@@ -177,6 +266,7 @@ echo "[kdf] Coins file located at ${COINS_PATH}"
 
 # Create setup completion marker
 echo "[kdf] Setup completed successfully"
+echo "[kdf] Creating setup completion marker..."
 
 # Log KDF version for reference and create version file for add-on info
 echo "[kdf] KDF Version Information:"
@@ -196,10 +286,47 @@ else
 fi
 
 touch /tmp/kdf-setup-complete
+echo "[kdf] Setup completion marker created at /tmp/kdf-setup-complete"
 
 # Clean up running marker
 rm -f /tmp/kdf-setup-running
+echo "[kdf] Setup running marker removed"
 
 export KDF_RPC_PORT="${RPC_PORT}"
 export KDF_LOG_LEVEL="${LOG_LEVEL}"
 export KDF_RPC_PASSWORD="${RPC_PASS}"
+
+# Export exchange rate configuration for other services
+export ENABLE_EXCHANGE_RATES="${ENABLE_EXCHANGE_RATES}"
+export EXCHANGE_RATES_API_KEY="${EXCHANGE_RATES_API_KEY}"
+export SELECTED_FIAT_CURRENCY="${SELECTED_FIAT_CURRENCY}"
+
+# Ensure kdf_method_versions.json exists in /data and is refreshed when the image example changes
+EXAMPLE_METHODS_FILE="/root/www/kdf_method_versions.example.json"
+DEST_METHODS_FILE="/data/kdf_method_versions.json"
+METHODS_SHA_FILE="/data/.kdf_method_versions.sha"
+if [[ -f "${EXAMPLE_METHODS_FILE}" ]]; then
+    # compute checksum using sha256sum if available, fallback to md5sum
+    if command -v sha256sum >/dev/null 2>&1; then
+        NEW_SHA=$(sha256sum "${EXAMPLE_METHODS_FILE}" | awk '{print $1}')
+    elif command -v md5sum >/dev/null 2>&1; then
+        NEW_SHA=$(md5sum "${EXAMPLE_METHODS_FILE}" | awk '{print $1}')
+    else
+        NEW_SHA=""
+    fi
+
+    PREV_SHA=""
+    if [[ -f "${METHODS_SHA_FILE}" ]]; then
+        PREV_SHA=$(cat "${METHODS_SHA_FILE}" 2>/dev/null || echo "")
+    fi
+
+    if [[ "${NEW_SHA}" != "${PREV_SHA}" || ! -f "${DEST_METHODS_FILE}" ]]; then
+        echo "[kdf] Deploying kdf_method_versions.json from example"
+        cp "${EXAMPLE_METHODS_FILE}" "${DEST_METHODS_FILE}" || echo "[kdf] Warning: failed to copy method versions example"
+        if [[ -n "${NEW_SHA}" ]]; then
+            echo "${NEW_SHA}" > "${METHODS_SHA_FILE}"
+        fi
+    else
+        echo "[kdf] kdf_method_versions.json up-to-date"
+    fi
+fi

@@ -1,0 +1,116 @@
+# Example Home Assistant Dashboard Configuration for KDF Orderbook
+# Add this to your Lovelace dashboard configuration
+
+title: KDF Trading Dashboard
+views:
+  - title: Trading
+    path: trading
+    icon: mdi:chart-line
+    cards:
+      # KDF Orderbook Card
+      - type: custom:kdf-orderbook-card
+        title: "KDF Orderbook"
+        coin: "BTC"
+        base_currency: "AUD"
+        show_spread: true
+        max_orders: 10
+        refresh_interval: 30
+        # Panel server handles RPC auth; point the card to the panel server API base path
+        # panel_api_base: "/"
+
+      # Multiple orderbook cards for different coins
+      - type: horizontal-stack
+        cards:
+          - type: custom:kdf-orderbook-card
+            title: "BTC Orderbook"
+            coin: "BTC"
+            base_currency: "AUD"
+            show_spread: true
+            max_orders: 5
+            refresh_interval: 30
+            # panel_api_base: "/"
+          
+          - type: custom:kdf-orderbook-card
+            title: "ETH Orderbook"
+            coin: "ETH"
+            base_currency: "AUD"
+            show_spread: true
+            max_orders: 5
+            refresh_interval: 30
+            # panel_api_base: "/"
+
+      # Grid layout for multiple orderbooks
+      - type: grid
+        columns: 2
+        square: false
+        cards:
+          - type: custom:kdf-orderbook-card
+            title: "LTC Orderbook"
+            coin: "LTC"
+            base_currency: "AUD"
+            show_spread: true
+            max_orders: 8
+            refresh_interval: 30
+            # panel_api_base: "/"
+          
+          - type: custom:kdf-orderbook-card
+            title: "BNB Orderbook"
+            coin: "BNB"
+            base_currency: "AUD"
+            show_spread: true
+            max_orders: 8
+            refresh_interval: 30
+            # panel_api_base: "/"
+          
+          - type: custom:kdf-orderbook-card
+            title: "AVAX Orderbook"
+            coin: "AVAX"
+            base_currency: "AUD"
+            show_spread: true
+            max_orders: 8
+            refresh_interval: 30
+            kdf_rpc_url: "http://localhost:7783"
+            kdf_rpc_password: "your_rpc_password_here"
+          
+          - type: custom:kdf-orderbook-card
+            title: "ATOM Orderbook"
+            coin: "ATOM"
+            base_currency: "AUD"
+            show_spread: true
+            max_orders: 8
+            refresh_interval: 30
+            kdf_rpc_url: "http://localhost:7783"
+            kdf_rpc_password: "your_rpc_password_here"
+
+  - title: Settings
+    path: settings
+    icon: mdi:cog
+    cards:
+      - type: markdown
+        content: |
+          ## KDF Orderbook Card Configuration
+          
+          ### Installation
+          1. Copy the card files to your Home Assistant `www` directory
+          2. Add the card resource in Lovelace configuration:
+             ```yaml
+             resources:
+               - url: /local/kdf-orderbook-card.js
+                 type: module
+           ```
+          3. Use the card in your dashboard with the configuration above
+          
+          ### Configuration Options
+          - **title**: Display title for the card
+          - **coin**: Default coin to display (USD, LTC, BNB, BTC, ETH, AVAX, ATOM, MATIC, KMD, DOGE, DGB)
+          - **base_currency**: Base currency for prices (default: AUD)
+          - **show_spread**: Whether to show the spread information
+          - **max_orders**: Maximum number of orders to display (1-50)
+          - **refresh_interval**: Auto-refresh interval in seconds (5-300)
+          - **kdf_rpc_url**: KDF RPC endpoint URL
+          - **kdf_rpc_password**: KDF RPC password
+          
+          ### Notes
+          - Make sure your KDF add-on is running and accessible
+          - Update the RPC password to match your KDF configuration
+          - The card currently uses mock data - real API integration coming soon

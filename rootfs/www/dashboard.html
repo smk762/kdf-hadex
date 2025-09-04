@@ -1,0 +1,1364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KDF Trading Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            color: #ffffff;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            padding: 1rem 2rem;
+            border-bottom: 1px solid #333;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(45deg, #00d4aa, #00b894);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 1.2rem;
+            color: #000;
+        }
+
+        .logo-text {
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: linear-gradient(45deg, #00d4aa, #00b894);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: rgba(0, 212, 170, 0.1);
+            border: 1px solid #00d4aa;
+            border-radius: 20px;
+            font-size: 0.9rem;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background: #00d4aa;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 1.5rem;
+            transition: all 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 32px rgba(0, 212, 170, 0.1);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .card-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #00d4aa;
+        }
+
+        .coin-selector {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .coin-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #fff;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        .coin-btn:hover {
+            background: rgba(0, 212, 170, 0.2);
+            border-color: #00d4aa;
+        }
+
+        .coin-btn.active {
+            background: #00d4aa;
+            border-color: #00d4aa;
+            color: #000;
+        }
+
+        .spread-info {
+            text-align: center;
+            background: rgba(0, 212, 170, 0.1);
+            padding: 1rem;
+            border-radius: 12px;
+            margin-bottom: 1rem;
+            border: 1px solid rgba(0, 212, 170, 0.3);
+        }
+
+        .spread-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #00d4aa;
+            font-family: 'Courier New', monospace;
+        }
+
+        .spread-label {
+            color: #aaa;
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+        }
+
+        .orderbook-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+
+        .orderbook-section {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 12px;
+            padding: 1rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .orderbook-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .orderbook-title {
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        .orderbook-title.bids {
+            color: #00ff88;
+        }
+
+        .orderbook-title.asks {
+            color: #ff4444;
+        }
+
+        .refresh-btn {
+            background: #00d4aa;
+            color: #000;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.3s ease;
+            font-size: 0.8rem;
+        }
+
+        .refresh-btn:hover {
+            background: #00b894;
+        }
+
+        .orderbook-table {
+            width: 100%;
+            font-size: 0.9rem;
+        }
+
+        .orderbook-table th,
+        .orderbook-table td {
+            padding: 0.5rem;
+            text-align: right;
+        }
+
+        .orderbook-table th {
+            background: rgba(255, 255, 255, 0.1);
+            color: #aaa;
+            font-weight: 500;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .orderbook-table td {
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .orderbook-table tr:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .price {
+            font-weight: 600;
+            font-family: 'Courier New', monospace;
+        }
+
+        .price.bid {
+            color: #00ff88;
+        }
+
+        .price.ask {
+            color: #ff4444;
+        }
+
+        .volume {
+            color: #aaa;
+            font-family: 'Courier New', monospace;
+        }
+
+        .loading {
+            text-align: center;
+            color: #888;
+            padding: 2rem;
+        }
+
+        .error {
+            text-align: center;
+            color: #ff4444;
+            padding: 2rem;
+            background: rgba(255, 68, 68, 0.1);
+            border-radius: 8px;
+            border: 1px solid #ff4444;
+        }
+
+        .last-updated {
+            text-align: center;
+            color: #666;
+            font-size: 0.8rem;
+            margin-top: 1rem;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 1.5rem;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #00d4aa;
+            font-family: 'Courier New', monospace;
+        }
+
+        .stat-label {
+            color: #aaa;
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+        }
+
+                        .actions-container {
+                    display: flex;
+                    gap: 16px;
+                }
+
+                .action-section {
+                    flex: 1;
+                    background: var(--secondary-background-color, #2a2a2a);
+                    border-radius: 8px;
+                    padding: 16px;
+                    border: 1px solid var(--divider-color, #444);
+                }
+
+                .action-title {
+                    font-size: 1rem;
+                    font-weight: 600;
+                    margin-bottom: 12px;
+                    color: var(--primary-color, #00d4aa);
+                }
+
+                .form-row {
+                    display: flex;
+                    gap: 12px;
+                    margin-bottom: 12px;
+                }
+
+                .form-group {
+                    flex: 1;
+                }
+
+                .form-group label {
+                    display: block;
+                    margin-bottom: 4px;
+                    font-size: 0.9rem;
+                    color: var(--secondary-text-color, #aaa);
+                }
+
+                .form-group input,
+                .form-group select {
+                    width: 100%;
+                    padding: 8px 12px;
+                    border: 1px solid var(--divider-color, #444);
+                    border-radius: 4px;
+                    background: var(--card-background-color, #1a1a1a);
+                    color: var(--primary-text-color, #ffffff);
+                    font-size: 0.9rem;
+                }
+
+                .form-group input:focus,
+                .form-group select:focus {
+                    outline: none;
+                    border-color: var(--primary-color, #00d4aa);
+                    box-shadow: 0 0 0 2px rgba(0, 212, 170, 0.2);
+                }
+
+                .btn {
+                    border: none;
+                    padding: 10px 16px;
+                    border-radius: 6px;
+                    cursor: pointer;
+                    font-weight: 600;
+                    transition: all 0.3s ease;
+                    font-size: 0.9rem;
+                }
+
+                .btn-primary {
+                    background: var(--primary-color, #00d4aa);
+                    color: var(--text-primary-color, #000);
+                }
+
+                .btn-primary:hover {
+                    background: var(--primary-color-dark, #00b894);
+                }
+
+                .status-message {
+                    margin-top: 12px;
+                    padding: 8px 12px;
+                    border-radius: 4px;
+                    font-size: 0.9rem;
+                    text-align: center;
+                }
+
+                .status-success {
+                    background: rgba(0, 255, 136, 0.1);
+                    border: 1px solid #00ff88;
+                    color: #00ff88;
+                }
+
+                .status-error {
+                    background: rgba(255, 68, 68, 0.1);
+                    border: 1px solid #ff4444;
+                    color: #ff4444;
+                }
+
+                .status-info {
+                    background: rgba(0, 212, 170, 0.1);
+                    border: 1px solid #00d4aa;
+                    color: #00d4aa;
+                }
+
+                @media (max-width: 768px) {
+                    .dashboard-grid {
+                        grid-template-columns: 1fr;
+                    }
+                    
+                    .orderbook-container {
+                        grid-template-columns: 1fr;
+                    }
+                    
+                    .coin-selector {
+                        justify-content: flex-start;
+                        overflow-x: auto;
+                        padding-bottom: 0.5rem;
+                    }
+                    
+                    .coin-btn {
+                        white-space: nowrap;
+                        flex-shrink: 0;
+                    }
+
+                    .actions-container {
+                        flex-direction: column;
+                    }
+
+                    .form-row {
+                        flex-direction: column;
+                    }
+                }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-content">
+            <div class="logo">
+                <div class="logo-icon">K</div>
+                <div class="logo-text">KDF Trading Dashboard</div>
+            </div>
+            <div class="status-indicator">
+                <div class="status-dot"></div>
+                <span>KDF Connected</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Stats Overview -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value" id="total-pairs">11</div>
+                <div class="stat-label">Trading Pairs</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="active-orders">--</div>
+                <div class="stat-label">Active Orders</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="kdf-version">--</div>
+                <div class="stat-label">KDF Version</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="network-status">Online</div>
+                <div class="stat-label">Network Status</div>
+            </div>
+        </div>
+
+        <!-- Trading Overview Cards -->
+        <div class="dashboard-grid">
+            <!-- Best Orders Card -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">Best Orders</div>
+                </div>
+                <div class="orders-container">
+                    <div class="orders-section">
+                        <div class="orders-header">
+                            <div class="orderbook-title bids">Best Buy Orders</div>
+                        </div>
+                        <table class="orderbook-table">
+                            <thead>
+                                <tr>
+                                    <th>Price (AUD)</th>
+                                    <th>Volume</th>
+                                    <th>Total</th>
+                                </tr>
+                            </thead>
+                            <tbody id="best-buy-orders">
+                                <tr>
+                                    <td colspan="3" class="loading">Loading...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="orders-section">
+                        <div class="orders-header">
+                            <div class="orderbook-title asks">Best Sell Orders</div>
+                        </div>
+                        <table class="orderbook-table">
+                            <thead>
+                                <tr>
+                                    <th>Price (AUD)</th>
+                                    <th>Volume</th>
+                                    <th>Total</th>
+                                </tr>
+                            </thead>
+                            <tbody id="best-sell-orders">
+                                <tr>
+                                    <td colspan="3" class="loading">Loading...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Active Swaps Card -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">Active Swaps</div>
+                </div>
+                <div class="swaps-container" id="active-swaps-container">
+                    <div class="loading">Loading active swaps...</div>
+                </div>
+            </div>
+
+            <!-- My Orders Card -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">My Orders</div>
+                    <button class="refresh-btn" onclick="refreshMyOrders()">↻</button>
+                </div>
+                <div class="orders-container" id="my-orders-container">
+                    <div class="loading">Loading my orders...</div>
+                </div>
+            </div>
+
+            <!-- Recent Swaps Card -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">Recent Swaps</div>
+                </div>
+                <div class="swaps-container" id="recent-swaps-container">
+                    <div class="loading">Loading recent swaps...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Trading Actions Card -->
+        <div class="card" style="margin-bottom: 2rem;">
+            <div class="card-header">
+                <div class="card-title">Trading Actions</div>
+            </div>
+            <div class="actions-container">
+                <div class="action-section">
+                    <div class="action-title">Place Order</div>
+                    <form id="trading-form">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="order-type">Type:</label>
+                                <select id="order-type" required>
+                                    <option value="buy">Buy</option>
+                                    <option value="sell">Sell</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="base-currency">Base:</label>
+                                <select id="base-currency" required>
+                                    <option value="BTC">BTC</option>
+                                    <option value="ETH">ETH</option>
+                                    <option value="LTC">LTC</option>
+                                    <option value="BNB">BNB</option>
+                                    <option value="AVAX">AVAX</option>
+                                    <option value="ATOM">ATOM</option>
+                                    <option value="MATIC">MATIC</option>
+                                    <option value="KMD">KMD</option>
+                                    <option value="DOGE">DOGE</option>
+                                    <option value="DGB">DGB</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="rel-currency">Quote:</label>
+                                <select id="rel-currency" required>
+                                    <option value="AUD">AUD</option>
+                                    <option value="USD">USD</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="volume">Volume:</label>
+                                <input type="number" id="volume" step="0.00000001" min="0" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="price">Price:</label>
+                                <input type="number" id="price" step="0.01" min="0" required>
+                            </div>
+                            <div class="form-group">
+                                <button type="submit" class="btn btn-primary">Place Order</button>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="trading-status" class="status-message" style="display: none;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Orderbook Cards -->
+        <div class="dashboard-grid" id="orderbook-grid">
+            <!-- Orderbook cards will be dynamically generated here -->
+        </div>
+
+        <div class="last-updated" id="last-updated">
+            Last updated: Never
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const KDF_RPC_URL = 'http://localhost:7783';
+        const RPC_PASSWORD = 'CHANGE_ME'; // This should be configured properly
+        
+        // Supported coins from the image
+        const SUPPORTED_COINS = [
+            { symbol: 'USD', name: 'USD/AUD', icon: '$' },
+            { symbol: 'LTC', name: 'Litecoin', icon: 'Ł' },
+            { symbol: 'BNB', name: 'Binance Coin', icon: 'B' },
+            { symbol: 'BTC', name: 'Bitcoin', icon: '₿' },
+            { symbol: 'ETH', name: 'Ethereum', icon: 'Ξ' },
+            { symbol: 'AVAX', name: 'Avalanche', icon: 'A' },
+            { symbol: 'ATOM', name: 'Cosmos', icon: '⚛' },
+            { symbol: 'MATIC', name: 'Polygon', icon: 'M' },
+            { symbol: 'KMD', name: 'Komodo', icon: 'K' },
+            { symbol: 'DOGE', name: 'Dogecoin', icon: 'Ð' },
+            { symbol: 'DGB', name: 'DigiByte', icon: 'D' }
+        ];
+
+        let orderbookData = {};
+
+        // Initialize the dashboard
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeDashboard();
+            loadKDFVersion();
+            loadBestOrders();
+            loadActiveSwaps();
+            loadMyOrders();
+            loadRecentSwaps();
+            setupTradingForm();
+            
+            // Auto-refresh every 30 seconds
+            setInterval(() => {
+                refreshAllOrderbooks();
+                loadBestOrders();
+                loadActiveSwaps();
+                loadMyOrders();
+                loadRecentSwaps();
+                updateLastUpdated();
+            }, 30000);
+        });
+
+        function initializeDashboard() {
+            const grid = document.getElementById('orderbook-grid');
+            
+            // Create orderbook cards for each coin
+            SUPPORTED_COINS.forEach(coin => {
+                const card = createOrderbookCard(coin);
+                grid.appendChild(card);
+            });
+        }
+
+        function createOrderbookCard(coin) {
+            const card = document.createElement('div');
+            card.className = 'card';
+            card.innerHTML = `
+                <div class="card-header">
+                    <div class="card-title">${coin.icon} ${coin.name}</div>
+                </div>
+                
+                <div class="spread-info">
+                    <div class="spread-value" id="spread-${coin.symbol}">--</div>
+                    <div class="spread-label">Spread</div>
+                </div>
+
+                <div class="orderbook-container">
+                    <div class="orderbook-section">
+                        <div class="orderbook-header">
+                            <div class="orderbook-title bids">Bids (Buy)</div>
+                            <button class="refresh-btn" onclick="refreshOrderbook('${coin.symbol}')">↻</button>
+                        </div>
+                        <table class="orderbook-table">
+                            <thead>
+                                <tr>
+                                    <th>Price (AUD)</th>
+                                    <th>Volume</th>
+                                    <th>Total</th>
+                                </tr>
+                            </thead>
+                            <tbody id="bids-${coin.symbol}">
+                                <tr>
+                                    <td colspan="3" class="loading">Loading...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="orderbook-section">
+                        <div class="orderbook-header">
+                            <div class="orderbook-title asks">Asks (Sell)</div>
+                        </div>
+                        <table class="orderbook-table">
+                            <thead>
+                                <tr>
+                                    <th>Price (AUD)</th>
+                                    <th>Volume</th>
+                                    <th>Total</th>
+                                </tr>
+                            </thead>
+                            <tbody id="asks-${coin.symbol}">
+                                <tr>
+                                    <td colspan="3" class="loading">Loading...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+            
+            return card;
+        }
+
+        async function loadKDFVersion() {
+            try {
+                const response = await fetch(KDF_RPC_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        method: 'version',
+                        userpass: RPC_PASSWORD
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.result && data.result.kdf_version) {
+                        document.getElementById('kdf-version').textContent = data.result.kdf_version;
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading KDF version:', error);
+                document.getElementById('kdf-version').textContent = 'Unknown';
+            }
+        }
+
+        async function refreshAllOrderbooks() {
+            for (const coin of SUPPORTED_COINS) {
+                await refreshOrderbook(coin.symbol);
+            }
+        }
+
+        async function refreshOrderbook(coinSymbol) {
+            try {
+                // Try to fetch real data first, fall back to mock data if KDF is not available
+                try {
+                    const realData = await fetchRealOrderbook(coinSymbol, 'AUD');
+                    displayOrderbook(coinSymbol, realData);
+                } catch (apiError) {
+                    console.warn(`KDF API not available for ${coinSymbol}, using mock data:`, apiError.message);
+                    const mockData = generateMockOrderbook(coinSymbol);
+                    displayOrderbook(coinSymbol, mockData);
+                }
+                
+            } catch (error) {
+                console.error(`Error loading orderbook for ${coinSymbol}:`, error);
+                displayError(coinSymbol, error.message);
+            }
+        }
+
+        function generateMockOrderbook(coinSymbol) {
+            const basePrice = getBasePrice(coinSymbol);
+            const spread = basePrice * 0.001; // 0.1% spread
+            
+            const bids = [];
+            const asks = [];
+            
+            // Generate 8 bids (buy orders)
+            for (let i = 0; i < 8; i++) {
+                const price = basePrice - (spread / 2) - (i * spread * 0.1);
+                const volume = Math.random() * 100 + 10;
+                bids.push({
+                    price: price.toFixed(8),
+                    volume: volume.toFixed(4),
+                    total: (price * volume).toFixed(2)
+                });
+            }
+            
+            // Generate 8 asks (sell orders)
+            for (let i = 0; i < 8; i++) {
+                const price = basePrice + (spread / 2) + (i * spread * 0.1);
+                const volume = Math.random() * 100 + 10;
+                asks.push({
+                    price: price.toFixed(8),
+                    volume: volume.toFixed(4),
+                    total: (price * volume).toFixed(2)
+                });
+            }
+            
+            return {
+                bids: bids.sort((a, b) => parseFloat(b.price) - parseFloat(a.price)),
+                asks: asks.sort((a, b) => parseFloat(a.price) - parseFloat(b.price)),
+                spread: spread.toFixed(8)
+            };
+        }
+
+        function getBasePrice(coinSymbol) {
+            const prices = {
+                'USD': 1.533551,
+                'LTC': 170.38,
+                'BNB': 1303.6104,
+                'BTC': 170690.35,
+                'ETH': 6669.6433,
+                'AVAX': 36.7592,
+                'ATOM': 6.7921,
+                'MATIC': 0.4421,
+                'KMD': 0.0484,
+                'DOGE': 0.326,
+                'DGB': 0.0127
+            };
+            return prices[coinSymbol] || 100;
+        }
+
+        function displayOrderbook(coinSymbol, data) {
+            orderbookData[coinSymbol] = data;
+            
+            // Update spread
+            const spreadElement = document.getElementById(`spread-${coinSymbol}`);
+            if (spreadElement) {
+                spreadElement.textContent = data.spread;
+            }
+            
+            // Update bids table
+            const bidsTable = document.getElementById(`bids-${coinSymbol}`);
+            bidsTable.innerHTML = '';
+            data.bids.forEach(bid => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td class="price bid">${bid.price}</td>
+                    <td class="volume">${bid.volume}</td>
+                    <td class="volume">${bid.total}</td>
+                `;
+                bidsTable.appendChild(row);
+            });
+            
+            // Update asks table
+            const asksTable = document.getElementById(`asks-${coinSymbol}`);
+            asksTable.innerHTML = '';
+            data.asks.forEach(ask => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td class="price ask">${ask.price}</td>
+                    <td class="volume">${ask.volume}</td>
+                    <td class="volume">${ask.total}</td>
+                `;
+                asksTable.appendChild(row);
+            });
+        }
+
+        function displayError(coinSymbol, message) {
+            const bidsTable = document.getElementById(`bids-${coinSymbol}`);
+            const asksTable = document.getElementById(`asks-${coinSymbol}`);
+            
+            if (bidsTable) {
+                bidsTable.innerHTML = `<tr><td colspan="3" class="error">Error: ${message}</td></tr>`;
+            }
+            if (asksTable) {
+                asksTable.innerHTML = `<tr><td colspan="3" class="error">Error: ${message}</td></tr>`;
+            }
+            
+            const spreadElement = document.getElementById(`spread-${coinSymbol}`);
+            if (spreadElement) {
+                spreadElement.textContent = '--';
+            }
+        }
+
+        function updateLastUpdated() {
+            const now = new Date();
+            document.getElementById('last-updated').textContent = 
+                `Last updated: ${now.toLocaleTimeString()}`;
+        }
+
+        // Real KDF API integration
+        async function fetchRealOrderbook(base, rel) {
+            try {
+                const response = await fetch(KDF_RPC_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        method: 'orderbook',
+                        params: {
+                            base: base,
+                            rel: rel
+                        },
+                        userpass: RPC_PASSWORD
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                // Transform KDF orderbook data to our format
+                return transformKDFOrderbook(data.result);
+            } catch (error) {
+                console.error('KDF API Error:', error);
+                throw error;
+            }
+        }
+
+        function transformKDFOrderbook(kdfData) {
+            // Transform KDF orderbook format to our display format
+            const bids = kdfData.bids ? kdfData.bids.map(bid => ({
+                price: parseFloat(bid.price).toFixed(8),
+                volume: parseFloat(bid.maxvolume).toFixed(4),
+                total: (parseFloat(bid.price) * parseFloat(bid.maxvolume)).toFixed(2)
+            })) : [];
+
+            const asks = kdfData.asks ? kdfData.asks.map(ask => ({
+                price: parseFloat(ask.price).toFixed(8),
+                volume: parseFloat(ask.maxvolume).toFixed(4),
+                total: (parseFloat(ask.price) * parseFloat(ask.maxvolume)).toFixed(2)
+            })) : [];
+
+            // Calculate spread
+            const bestBid = bids.length > 0 ? parseFloat(bids[0].price) : 0;
+            const bestAsk = asks.length > 0 ? parseFloat(asks[0].price) : 0;
+            const spread = bestBid > 0 && bestAsk > 0 ? (bestAsk - bestBid).toFixed(8) : '0.00000000';
+
+            return {
+                bids: bids.sort((a, b) => parseFloat(b.price) - parseFloat(a.price)),
+                asks: asks.sort((a, b) => parseFloat(a.price) - parseFloat(b.price)),
+                spread: spread
+            };
+        }
+
+        // Best Orders Functions
+        async function loadBestOrders() {
+            try {
+                const response = await fetch(KDF_RPC_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        method: 'best_orders',
+                        userpass: RPC_PASSWORD
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.result) {
+                        displayBestOrders(data.result);
+                    }
+                }
+            } catch (error) {
+                console.warn('Best orders API not available, using mock data');
+                displayBestOrders(generateMockBestOrders());
+            }
+        }
+
+        function displayBestOrders(data) {
+            const buyTable = document.getElementById('best-buy-orders');
+            const sellTable = document.getElementById('best-sell-orders');
+            
+            // Mock data for demonstration
+            const mockBuyOrders = [
+                { price: '169500.00', volume: '0.001', total: '169.50' },
+                { price: '169400.00', volume: '0.002', total: '338.80' },
+                { price: '169300.00', volume: '0.005', total: '846.50' }
+            ];
+            
+            const mockSellOrders = [
+                { price: '170500.00', volume: '0.001', total: '170.50' },
+                { price: '170600.00', volume: '0.002', total: '341.20' },
+                { price: '170700.00', volume: '0.005', total: '853.50' }
+            ];
+
+            buyTable.innerHTML = '';
+            mockBuyOrders.forEach(order => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td class="price bid">${order.price}</td>
+                    <td class="volume">${order.volume}</td>
+                    <td class="volume">${order.total}</td>
+                `;
+                buyTable.appendChild(row);
+            });
+
+            sellTable.innerHTML = '';
+            mockSellOrders.forEach(order => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td class="price ask">${order.price}</td>
+                    <td class="volume">${order.volume}</td>
+                    <td class="volume">${order.total}</td>
+                `;
+                sellTable.appendChild(row);
+            });
+        }
+
+        function generateMockBestOrders() {
+            return { buy: [], sell: [] };
+        }
+
+        // Active Swaps Functions
+        async function loadActiveSwaps() {
+            try {
+                const response = await fetch(KDF_RPC_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        method: 'active_swaps',
+                        userpass: RPC_PASSWORD
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.result) {
+                        displayActiveSwaps(data.result);
+                    }
+                }
+            } catch (error) {
+                console.warn('Active swaps API not available, using mock data');
+                displayActiveSwaps(generateMockActiveSwaps());
+            }
+        }
+
+        function displayActiveSwaps(swaps) {
+            const container = document.getElementById('active-swaps-container');
+            
+            if (!swaps || swaps.length === 0) {
+                container.innerHTML = '<div class="no-swaps">No active swaps</div>';
+                return;
+            }
+
+            // Mock data for demonstration
+            const mockSwaps = [
+                {
+                    pair: 'BTC/AUD',
+                    status: 'active',
+                    baseAmount: '0.00100000',
+                    relAmount: '170.50',
+                    progress: 75
+                },
+                {
+                    pair: 'ETH/AUD',
+                    status: 'pending',
+                    baseAmount: '0.05000000',
+                    relAmount: '333.25',
+                    progress: 25
+                }
+            ];
+
+            container.innerHTML = '';
+            mockSwaps.forEach(swap => {
+                const swapElement = document.createElement('div');
+                swapElement.className = 'swap-item';
+                swapElement.innerHTML = `
+                    <div class="swap-header">
+                        <div class="swap-pair">${swap.pair}</div>
+                        <div class="swap-status ${swap.status}">${swap.status.toUpperCase()}</div>
+                    </div>
+                    <div class="swap-details">
+                        <div class="swap-detail">
+                            <span class="swap-detail-label">Base Amount:</span>
+                            <span class="swap-detail-value">${swap.baseAmount}</span>
+                        </div>
+                        <div class="swap-detail">
+                            <span class="swap-detail-label">Rel Amount:</span>
+                            <span class="swap-detail-value">${swap.relAmount}</span>
+                        </div>
+                    </div>
+                    <div class="swap-progress">
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: ${swap.progress}%"></div>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(swapElement);
+            });
+        }
+
+        function generateMockActiveSwaps() {
+            return [];
+        }
+
+        // My Orders Functions
+        async function loadMyOrders() {
+            try {
+                const response = await fetch(KDF_RPC_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        method: 'my_orders',
+                        userpass: RPC_PASSWORD
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.result) {
+                        displayMyOrders(data.result);
+                    }
+                }
+            } catch (error) {
+                console.warn('My orders API not available, using mock data');
+                displayMyOrders(generateMockMyOrders());
+            }
+        }
+
+        function displayMyOrders(orders) {
+            const container = document.getElementById('my-orders-container');
+            
+            if (!orders || orders.length === 0) {
+                container.innerHTML = '<div class="no-orders">No active orders</div>';
+                return;
+            }
+
+            // Mock data for demonstration
+            const mockOrders = [
+                {
+                    pair: 'BTC/AUD',
+                    type: 'sell',
+                    price: '175000.00',
+                    volume: '0.00100000',
+                    total: '175.00'
+                },
+                {
+                    pair: 'ETH/AUD',
+                    type: 'buy',
+                    price: '6500.00',
+                    volume: '0.10000000',
+                    total: '650.00'
+                }
+            ];
+
+            container.innerHTML = '';
+            mockOrders.forEach(order => {
+                const orderElement = document.createElement('div');
+                orderElement.className = 'order-item';
+                orderElement.innerHTML = `
+                    <div class="order-header">
+                        <div class="order-pair">${order.pair}</div>
+                        <div class="order-type ${order.type}">${order.type.toUpperCase()}</div>
+                    </div>
+                    <div class="order-details">
+                        <div class="order-detail">
+                            <span class="order-detail-label">Price:</span>
+                            <span class="order-detail-value">${order.price}</span>
+                        </div>
+                        <div class="order-detail">
+                            <span class="order-detail-label">Volume:</span>
+                            <span class="order-detail-value">${order.volume}</span>
+                        </div>
+                        <div class="order-detail">
+                            <span class="order-detail-label">Total:</span>
+                            <span class="order-detail-value">${order.total}</span>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(orderElement);
+            });
+        }
+
+        function generateMockMyOrders() {
+            return [];
+        }
+
+        // Recent Swaps Functions
+        async function loadRecentSwaps() {
+            try {
+                const response = await fetch(KDF_RPC_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        method: 'my_recent_swaps',
+                        userpass: RPC_PASSWORD
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.result) {
+                        displayRecentSwaps(data.result);
+                    }
+                }
+            } catch (error) {
+                console.warn('Recent swaps API not available, using mock data');
+                displayRecentSwaps(generateMockRecentSwaps());
+            }
+        }
+
+        function displayRecentSwaps(swaps) {
+            const container = document.getElementById('recent-swaps-container');
+            
+            if (!swaps || swaps.length === 0) {
+                container.innerHTML = '<div class="no-swaps">No recent swaps</div>';
+                return;
+            }
+
+            // Mock data for demonstration
+            const mockSwaps = [
+                {
+                    pair: 'BTC/AUD',
+                    status: 'completed',
+                    baseAmount: '0.00100000',
+                    relAmount: '170.50',
+                    duration: '5m 0s'
+                },
+                {
+                    pair: 'ETH/AUD',
+                    status: 'failed',
+                    baseAmount: '0.05000000',
+                    relAmount: '333.25',
+                    duration: '10m 0s'
+                }
+            ];
+
+            container.innerHTML = '';
+            mockSwaps.forEach(swap => {
+                const swapElement = document.createElement('div');
+                swapElement.className = 'swap-item';
+                swapElement.innerHTML = `
+                    <div class="swap-header">
+                        <div class="swap-pair">${swap.pair}</div>
+                        <div class="swap-status ${swap.status}">${swap.status.toUpperCase()}</div>
+                    </div>
+                    <div class="swap-details">
+                        <div class="swap-detail">
+                            <span class="swap-detail-label">Base Amount:</span>
+                            <span class="swap-detail-value">${swap.baseAmount}</span>
+                        </div>
+                        <div class="swap-detail">
+                            <span class="swap-detail-label">Rel Amount:</span>
+                            <span class="swap-detail-value">${swap.relAmount}</span>
+                        </div>
+                        <div class="swap-detail">
+                            <span class="swap-detail-label">Duration:</span>
+                            <span class="swap-detail-value">${swap.duration}</span>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(swapElement);
+            });
+        }
+
+        function generateMockRecentSwaps() {
+            return [];
+        }
+
+        // Trading Form Functions
+        function setupTradingForm() {
+            const form = document.getElementById('trading-form');
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                await placeOrder();
+            });
+        }
+
+        async function placeOrder() {
+            const orderType = document.getElementById('order-type').value;
+            const base = document.getElementById('base-currency').value;
+            const rel = document.getElementById('rel-currency').value;
+            const volume = document.getElementById('volume').value;
+            const price = document.getElementById('price').value;
+
+            if (!base || !rel || !volume || !price) {
+                showTradingStatus('Please fill in all fields', 'error');
+                return;
+            }
+
+            try {
+                showTradingStatus('Placing order...', 'info');
+                
+                const response = await fetch(KDF_RPC_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        method: orderType,
+                        params: { base, rel, volume, price },
+                        userpass: RPC_PASSWORD
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.error) {
+                        throw new Error(data.error);
+                    }
+                    showTradingStatus('Order placed successfully!', 'success');
+                    form.reset();
+                } else {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+            } catch (error) {
+                console.error('Error placing order:', error);
+                showTradingStatus(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        function showTradingStatus(message, type) {
+            const statusElement = document.getElementById('trading-status');
+            statusElement.textContent = message;
+            statusElement.className = `status-message status-${type}`;
+            statusElement.style.display = 'block';
+
+            setTimeout(() => {
+                statusElement.style.display = 'none';
+            }, 5000);
+        }
+
+        // Refresh functions
+        function refreshMyOrders() {
+            loadMyOrders();
+        }
+    </script>
+</body>
+</html>

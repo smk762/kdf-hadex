@@ -14,8 +14,10 @@ build_from:
 
 ports:
   7783/tcp: 7783
+  8099/tcp: 8099
 ports_description:
   7783/tcp: KDF JSON-RPC
+  8099/tcp: KDF Ingress Dashboard
 
 map:
   - data:rw
@@ -25,6 +27,13 @@ environment:
   LANG: C.UTF-8
 
 dinghy: false
+
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:chart-line
+panel_title: KDF Trading
+
+
 
 options:
   rpc_password: "CHANGE_ME"
@@ -36,12 +45,18 @@ options:
   wallet_password: "CHANGE_ME"
   bip39_mnemonic: ""
   haos_ip: "0.0.0.0"
+
   seednodes: 
     - "seed01.kmdefi.net"
     - "seed02.kmdefi.net"
     - "balerion.dragon-seed.com"
     - "drogon.dragon-seed.com"
     - "falkor.dragon-seed.com"
+
+  # Exchange rate configuration
+  enable_exchange_rates: false
+  exchange_rates_api_key: ""
+  selected_fiat_currency: "AUD"
 
 schema:
   rpc_password: password
@@ -53,4 +68,10 @@ schema:
   wallet_password: password
   bip39_mnemonic: password
   haos_ip: str
+
   seednodes: [str]
+  
+  # Exchange rate schema
+  enable_exchange_rates: bool
+  exchange_rates_api_key: password
+  selected_fiat_currency: list(AUD|EUR|GBP|JPY|CAD|CHF|CNY|NZD|SGD|HKD|KRW|INR|BRL|MXN|RUB|ZAR|TRY|SEK|NOK|DKK|PLN|CZK|HUF)

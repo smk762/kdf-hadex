@@ -1,0 +1,16 @@
+{
+  "get_enabled_coins": "v2",
+  "orderbook": "v2",
+  "best_orders": "v2",
+  "active_swaps": "v2",
+  "my_orders": "legacy",
+  "my_recent_swaps": "legacy",
+  "version": "legacy",
+  "buy": "legacy",
+  "sell": "legacy",
+  "setprice": "legacy",
+  "cancel_order": "legacy",
+  "cancel_all_orders": "legacy"
+}
+
+

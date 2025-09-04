@@ -14,6 +14,7 @@ Runs the Komodo DeFi Framework (kdf) inside Home Assistant as an add-on.
 - `wallet_password` – wallet encryption password (8-32 chars, 1+ each: numeric, uppercase, lowercase, special char)
 - `bip39_mnemonic` – wallet seed phrase (12 or 24 words)
 - `haos_ip` – IP address for RPC binding (default: 0.0.0.0)
+- `enable_dashboard` – enable the Home Assistant integration (default: true)
 - `seednodes` – array of seed node addresses
 
 ### Password Requirements
@@ -57,6 +58,94 @@ curl --url "http://127.0.0.1:7783" --data '{
 }'
 ```
 
+## Home Assistant Integration
+
+This add-on provides native Home Assistant integration using the [pykomodefi](https://pypi.org/project/pykomodefi/) library to expose KDF data as Home Assistant entities.
+
+### Integration Configuration
+
+The KDF Home Assistant integration can be enabled/disabled via the add-on configuration:
+
+1. **Enable HA Integration**: Toggle the "Enable HA Integration" option in the add-on configuration
+2. **Default**: Integration is enabled by default
+
+### Home Assistant Entities
+
+When enabled, the add-on creates the following Home Assistant entities:
+
+- **`sensor.kdf_status`** - KDF connection status, version, and peer count
+- **`sensor.kdf_best_orders`** - Best buy/sell orders from the network
+- **`sensor.kdf_active_swaps`** - Currently active atomic swaps
+- **`sensor.kdf_my_orders`** - Your active orders
+- **`sensor.kdf_recent_swaps`** - Recent swap history
+
+### Panel Server & Frontend
+
+The add-on includes a lightweight panel server that the frontend cards use for authenticated RPC access. Frontend cards and the dashboard should point to the panel API base (`panel_api_base`) rather than embedding RPC credentials.
+
+- **Panel API base**: When configuring cards or the demo panel, set `panel_api_base` to the panel root (default `/`). The panel server proxies authenticated RPC calls to KDF and provides the following endpoints:
+  - `GET /api/status` - connection, version, peers
+  - `GET /api/data` - trading summary (active swaps, my orders, recent swaps)
+  - `GET /api/peers` - cleaned peer list
+  - `POST /api/orderbook` - orderbook (params: `{params:{base,rel}}`)
+  - `POST /api/best_orders` - best orders (params: `{params:{coin,action,request_by}}`)
+  - `POST /api/action` - generic RPC action forwarder (method + params)
+
+Do NOT store `rpc_password` in card configs; rely on the panel server to perform authenticated calls.
+
+### Caching / Refresh Configuration
+
+The panel server supports configurable cache/TTL settings. Create `/data/panel_cache_config.json` in the add-on data directory to override defaults. Example format:
+
+```json
+{
+  "best_orders": 30,
+  "orderbook": 10,
+  "peers": 60
+}
+```
+
+If the file is missing the server falls back to sensible defaults.
+
+### Features
+
+- **Real-time Orderbooks**: Live orderbook data for all supported cryptocurrencies
+- **Multi-coin Support**: USD, LTC, BNB, BTC, ETH, AVAX, ATOM, MATIC, KMD, DOGE, DGB
+- **Responsive Design**: Works on desktop and mobile devices
+- **Auto-refresh**: Configurable refresh intervals
+- **Modern UI**: Clean, professional trading interface
+
+### Adding to Home Assistant Sidebar
+
+1. Copy the panel file to your Home Assistant `www` directory:
+   ```bash
+   cp rootfs/www/kdf-panel.js /config/www/
+   ```
+
+2. Add the panel resource in Lovelace configuration:
+   - Go to **Configuration** → **Lovelace Dashboards** → **Resources**
+   - Click **+ Add Resource**
+   - Set URL to: `/local/kdf-panel.js`
+   - Set Resource type to: **JavaScript Module**
+
+3. The "KDF Trading" panel will appear in your Home Assistant sidebar
+
+### Lovelace Cards (Optional)
+
+For users who prefer individual cards in their dashboards, custom Lovelace cards are also available:
+
+1. Run the installation script:
+   ```bash
+   ./install-cards.sh
+   ```
+
+2. Add the card resource and use in your dashboards (see `rootfs/www/README.md` for details)
+
 ## Notes
 - This add-on does **not** store your seed in `MM2.json`. Use the integration service to import a seed only when needed.
 - If `/usr/local/bin/kdf` is not present in the upstream image, adjust the Dockerfile COPY path accordingly.
+
+
+## Optional features:
+
+Refer to [EXCHANGE_RATES_README.md](docs/EXCHANGE_RATES_README.md) for how to get an API key from [Open Exchange Rates](https://openexchangerates.org/) and set your local fiat currency in this Addon.

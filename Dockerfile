@@ -7,8 +7,18 @@ RUN apt-get update && apt-get install -y \
         jq \
         xz-utils \
         ca-certificates \
+        python3 \
+        python3-pip \
+        python3-venv \
+        python3-yaml \
+        python3-requests \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
+
+# Create virtual environment and install pykomodefi, PyYAML and requests
+RUN python3 -m venv /opt/kdf-venv \
+    && /opt/kdf-venv/bin/pip install --upgrade pip \
+    && /opt/kdf-venv/bin/pip install pykomodefi PyYAML requests
 
 # Install bashio for Home Assistant integration
 RUN curl -J -L -o /tmp/bashio.tar.gz \
@@ -35,11 +45,32 @@ RUN curl -L -o /tmp/s6-overlay-noarch.tar.xz \
 # Copy our service files + init scripts + config files AFTER s6-overlay installation
 COPY rootfs/ /
 
-# Fix permissions for init scripts and service files
-RUN chmod +x /etc/cont-init.d/* /etc/services.d/kdf/* /usr/local/bin/kdf-version
+# Copy web files to the runtime location
+RUN mkdir -p /root/www && \
+    if [ -d /www ]; then \
+        cp -r /www/* /root/www/; \
+        chmod -R 644 /root/www/*; \
+        echo "Web files copied to /root/www/"; \
+        ls -la /root/www/; \
+    else \
+        echo "Warning: /www directory not found during build"; \
+        echo "Available directories:"; \
+        ls -la /; \
+    fi
 
-# Expose KDF RPC port
+# Fix permissions for init scripts and service files
+RUN set -ex && \
+    # chmod only existing service directories (ignore missing ones) \
+    for d in /etc/cont-init.d /etc/services.d/kdf /etc/services.d/ha-integration /etc/services.d/panel-server /etc/services.d/exchange-rates; do \
+      [ -d "$d" ] && chmod -R +x "$d" || true; \
+    done && \
+    # make scripts executable (these should exist in image) \
+    chmod +x /usr/local/bin/kdf-version /usr/local/bin/kdf-ha-integration.py /usr/local/bin/panel-server.py /usr/local/bin/configure-panel.py /usr/local/bin/test-panel-server.py /usr/local/bin/generate-exchange-sensors.py || true
+
+
+# Expose KDF RPC port and ingress port
 EXPOSE 7783
+EXPOSE 8099
 
 # Use s6-overlay as entrypoint for HA addon compatibility
 ENTRYPOINT ["/init"]

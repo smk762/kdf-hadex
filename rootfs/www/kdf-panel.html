@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>KDF Trading Dashboard</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: var(--primary-background-color, #1e1e1e);
+            color: var(--primary-text-color, #ffffff);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .status-card {
+            background: var(--card-background-color, #2d2d2d);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        .status-label {
+            font-weight: 500;
+        }
+        .status-value {
+            color: var(--accent-color, #03a9f4);
+        }
+        .error {
+            color: #f44336;
+        }
+        .success {
+            color: #4caf50;
+        }
+        .loading {
+            text-align: center;
+            color: var(--secondary-text-color, #888);
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>KDF Trading Dashboard</h1>
+        <p>Komodo DeFi Framework Integration</p>
+    </div>
+
+    <div class="status-card">
+        <h3>Connection Status</h3>
+        <div class="status-item">
+            <span class="status-label">Status:</span>
+            <span class="status-value" id="connection-status">Checking...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Version:</span>
+            <span class="status-value" id="kdf-version">-</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Peer Count:</span>
+            <span class="status-value" id="peer-count">-</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Enabled Coins:</span>
+            <span class="status-value" id="enabled-coins">-</span>
+        </div>
+    </div>
+
+    <div class="status-card">
+        <h3>Trading Data</h3>
+        <div class="status-item">
+            <span class="status-label">Active Swaps:</span>
+            <span class="status-value" id="active-swaps">-</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">My Orders:</span>
+            <span class="status-value" id="my-orders">-</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Recent Swaps:</span>
+            <span class="status-value" id="recent-swaps">-</span>
+        </div>
+    </div>
+
+    <div class="status-card">
+        <h3>Information</h3>
+        <p>This dashboard shows real-time data from the Komodo DeFi Framework (KDF) running in your Home Assistant add-on.</p>
+        <p>Data is collected every 30 seconds and displayed here for monitoring your trading activity.</p>
+        <p><a href="./peers.html" id="peers-demo-link">Open Peers Demo</a></p>
+        <p>Card demos: <a href="./orderbook.html">Orderbook</a> | <a href="./peers.html">Peers</a> | <a href="./kdf-panel.html">Full Panel</a></p>
+    </div>
+
+    <div class="status-card">
+        <h3>Peers (live)</h3>
+        <!-- Include peers card component -->
+        <kdf-peers-card></kdf-peers-card>
+    </div>
+
+    <div class="status-card">
+        <h3>Quick Links</h3>
+        <div>
+            <a href="./orderbook.html" target="_blank">Orderbook Demo</a> |
+            <a href="./peers.html" target="_blank">Peers Demo</a> |
+            <a href="./kdf-panel.html" target="_blank">Full Panel</a>
+        </div>
+    </div>
+
+    <!-- Load peers card script -->
+    <script src="./kdf-peers-card.js"></script>
+    <script>
+        // Fetch data from the ingress API
+        async function fetchKDFData() {
+            try {
+                // Use relative path for ingress
+                const response = await fetch('./api/status');
+                const data = await response.json();
+                
+                document.getElementById('connection-status').textContent = data.status;
+                document.getElementById('connection-status').className = 'status-value success';
+                document.getElementById('kdf-version').textContent = data.version;
+                // Prefer peers endpoint for live peer count when available
+                try {
+                    const p = await fetch('./api/peers');
+                    if (p.ok) {
+                        const pj = await p.json();
+                        const pc = pj.peers ? Object.keys(pj.peers).length : (data.peer_count || 0);
+                        document.getElementById('peer-count').textContent = `${pc} peers`;
+                    } else {
+                        document.getElementById('peer-count').textContent = `${data.peer_count} peers`;
+                    }
+                } catch (e) {
+                    document.getElementById('peer-count').textContent = `${data.peer_count} peers`;
+                }
+                document.getElementById('enabled-coins').textContent = (data.enabled_coins || []).join(', ');
+            } catch (error) {
+                console.error('Error fetching status:', error);
+                document.getElementById('connection-status').textContent = 'Error';
+                document.getElementById('connection-status').className = 'status-value error';
+            }
+        }
+
+        async function fetchTradingData() {
+            try {
+                // Use relative path for ingress
+                const response = await fetch('./api/data');
+                const data = await response.json();
+                
+                document.getElementById('active-swaps').textContent = data.active_swaps;
+                document.getElementById('my-orders').textContent = data.my_orders;
+                document.getElementById('recent-swaps').textContent = data.recent_swaps;
+            } catch (error) {
+                console.error('Error fetching trading data:', error);
+            }
+        }
+
+        async function updateStatus() {
+            await Promise.all([fetchKDFData(), fetchTradingData()]);
+        }
+
+        // Update status on load
+        updateStatus();
+        
+        // Update every 30 seconds
+        setInterval(updateStatus, 30000);
+
+        // Add peers demo link handler to open peers card demo (ingress path)
+        document.getElementById('peers-demo-link').addEventListener('click', function (e) {
+            e.preventDefault();
+            // Open the peers demo page served by this panel: /ingress/peers
+            window.location.href = './peers.html';
+        });
+    </script>
+</body>
+</html>

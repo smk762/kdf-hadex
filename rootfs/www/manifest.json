@@ -1,0 +1,11 @@
+{
+  "name": "KDF Orderbook Card",
+  "version": "1.0.0",
+  "description": "Custom Lovelace card for displaying Komodo DeFi Framework orderbook data",
+  "author": "KDF HADEX",
+  "url": "https://github.com/smk762/kdf-hadex",
+  "main": "kdf-orderbook-card.js",
+  "type": "module",
+  "hacs": "1.6.0",
+  "homeassistant": "2023.1.0"
+}

@@ -1,0 +1,288 @@
+# Exchange rate sensors configuration for KDF HADEX addon
+# This file is generated based on user configuration and used by the HA integration
+
+# REST sensor for fetching exchange rates from OpenExchangeRates API
+- resource: "https://openexchangerates.org/api/latest.json"
+  method: GET
+  params:
+    app_id: "YOUR_API_KEY_HERE"
+  scan_interval: 7200   # 2 hours to avoid rate limits
+  timeout: 15
+  headers:
+    Accept: application/json
+  sensor:
+    - name: "Exchange Rates"
+      unique_id: hadex_exchange_rates
+      icon: mdi:cash-multiple
+      unit_of_measurement: "USD"
+      state_class: measurement
+      # Return USD/AUD rate as the main state (will be updated based on selected currency)
+      value_template: >
+        {% if value_json.rates is defined and value_json.rates.AUD is defined %}
+          {{ (1 / value_json.rates.AUD) | round(6) }}
+        {% else %}
+          {{ 1.5 }}
+        {% endif %}
+      json_attributes:
+        - rates
+        - base
+        - timestamp
+        - disclaimer
+        - license
+
+# Template sensors for individual currency rates
+- sensor:
+    # USD/AUD rate (direct from OpenExchangeRates API)
+    - name: "USD→AUD rate"
+      unique_id: hadex_usd_aud_rate
+      icon: mdi:cash-multiple
+      unit_of_measurement: "AUD"
+      state_class: measurement
+      availability: >
+        {{ state_attr('sensor.hadex_exchange_rates','rates') is mapping and state_attr('sensor.hadex_exchange_rates','rates').AUD is defined }}
+      state: >
+        {% set rates = state_attr('sensor.hadex_exchange_rates','rates') | default({}, true) %}
+        {{ rates.get('AUD', 0) | float(0) | round(6) }}
+
+    # Major fiat currencies
+    - name: "USD→EUR rate"
+      unique_id: hadex_usd_eur_rate
+      icon: mdi:currency-eur
+      unit_of_measurement: "EUR"
+      state_class: measurement
+      availability: >
+        {{ state_attr('sensor.hadex_exchange_rates','rates') is mapping and state_attr('sensor.hadex_exchange_rates','rates').EUR is defined }}
+      state: >
+        {% set rates = state_attr('sensor.hadex_exchange_rates','rates') | default({}, true) %}
+        {{ rates.get('EUR', 0) | float(0) | round(6) }}
+
+    - name: "USD→GBP rate"
+      unique_id: hadex_usd_gbp_rate
+      icon: mdi:currency-gbp
+      unit_of_measurement: "GBP"
+      state_class: measurement
+      availability: >
+        {{ state_attr('sensor.hadex_exchange_rates','rates') is mapping and state_attr('sensor.hadex_exchange_rates','rates').GBP is defined }}
+      state: >
+        {% set rates = state_attr('sensor.hadex_exchange_rates','rates') | default({}, true) %}
+        {{ rates.get('GBP', 0) | float(0) | round(6) }}
+
+    - name: "USD→JPY rate"
+      unique_id: hadex_usd_jpy_rate
+      icon: mdi:currency-jpy
+      unit_of_measurement: "JPY"
+      state_class: measurement
+      availability: >
+        {{ state_attr('sensor.hadex_exchange_rates','rates') is mapping and state_attr('sensor.hadex_exchange_rates','rates').JPY is defined }}
+      state: >
+        {% set rates = state_attr('sensor.hadex_exchange_rates','rates') | default({}, true) %}
+        {{ rates.get('JPY', 0) | float(0) | round(2) }}
+
+    - name: "USD→CAD rate"
+      unique_id: hadex_usd_cad_rate
+      icon: mdi:currency-cad
+      unit_of_measurement: "CAD"
+      state_class: measurement
+      availability: >
+        {{ state_attr('sensor.hadex_exchange_rates','rates') is mapping and state_attr('sensor.hadex_exchange_rates','rates').CAD is defined }}
+      state: >
+        {% set rates = state_attr('sensor.hadex_exchange_rates','rates') | default({}, true) %}
+        {{ rates.get('CAD', 0) | float(0) | round(6) }}
+
+    - name: "USD→CHF rate"
+      unique_id: hadex_usd_chf_rate
+      icon: mdi:currency-chf
+      unit_of_measurement: "CHF"
+      state_class: measurement
+      availability: >
+        {{ state_attr('sensor.hadex_exchange_rates','rates') is mapping and state_attr('sensor.hadex_exchange_rates','rates').CHF is defined }}
+      state: >
+        {% set rates = state_attr('sensor.hadex_exchange_rates','rates') | default({}, true) %}
+        {{ rates.get('CHF', 0) | float(0) | round(6) }}
+
+    - name: "USD→CNY rate"
+      unique_id: hadex_usd_cny_rate
+      icon: mdi:currency-cny
+      unit_of_measurement: "CNY"
+      state_class: measurement
+      availability: >
+        {{ state_attr('sensor.hadex_exchange_rates','rates') is mapping and state_attr('sensor.hadex_exchange_rates','rates').CNY is defined }}
+      state: >
+        {% set rates = state_attr('sensor.hadex_exchange_rates','rates') | default({}, true) %}
+        {{ rates.get('CNY', 0) | float(0) | round(4) }}
+
+    - name: "USD→NZD rate"
+      unique_id: hadex_usd_nzd_rate
+      icon: mdi:currency-nzd
+      unit_of_measurement: "NZD"
+      state_class: measurement
+      availability: >
+        {{ state_attr('sensor.hadex_exchange_rates','rates') is mapping and state_attr('sensor.hadex_exchange_rates','rates').NZD is defined }}
+      state: >
+        {% set rates = state_attr('sensor.hadex_exchange_rates','rates') | default({}, true) %}
+        {{ rates.get('NZD', 0) | float(0) | round(6) }}
+
+    - name: "USD→SGD rate"
+      unique_id: hadex_usd_sgd_rate
+      icon: mdi:currency-sgd
+      unit_of_measurement: "SGD"
+      state_class: measurement
+      availability: >
+        {{ state_attr('sensor.hadex_exchange_rates','rates') is mapping and state_attr('sensor.hadex_exchange_rates','rates').SGD is defined }}
+      state: >
+        {% set rates = state_attr('sensor.hadex_exchange_rates','rates') | default({}, true) %}
+        {{ rates.get('SGD', 0) | float(0) | round(6) }}
+
+    - name: "USD→HKD rate"
+      unique_id: hadex_usd_hkd_rate
+      icon: mdi:currency-hkd
+      unit_of_measurement: "HKD"
+      state_class: measurement
+      availability: >
+        {{ state_attr('sensor.hadex_exchange_rates','rates') is mapping and state_attr('sensor.hadex_exchange_rates','rates').HKD is defined }}
+      state: >
+        {% set rates = state_attr('sensor.hadex_exchange_rates','rates') | default({}, true) %}
+        {{ rates.get('HKD', 0) | float(0) | round(4) }}
+
+    - name: "USD→KRW rate"
+      unique_id: hadex_usd_krw_rate
+      icon: mdi:currency-krw
+      unit_of_measurement: "KRW"
+      state_class: measurement
+      availability: >
+        {{ state_attr('sensor.hadex_exchange_rates','rates') is mapping and state_attr('sensor.hadex_exchange_rates','rates').KRW is defined }}
+      state: >
+        {% set rates = state_attr('sensor.hadex_exchange_rates','rates') | default({}, true) %}
+        {{ rates.get('KRW', 0) | float(0) | round(0) }}
+
+    - name: "USD→INR rate"
+      unique_id: hadex_usd_inr_rate
+      icon: mdi:currency-inr
+      unit_of_measurement: "INR"
+      state_class: measurement
+      availability: >
+        {{ state_attr('sensor.hadex_exchange_rates','rates') is mapping and state_attr('sensor.hadex_exchange_rates','rates').INR is defined }}
+      state: >
+        {% set rates = state_attr('sensor.hadex_exchange_rates','rates') | default({}, true) %}
+        {{ rates.get('INR', 0) | float(0) | round(2) }}
+
+    - name: "USD→BRL rate"
+      unique_id: hadex_usd_brl_rate
+      icon: mdi:currency-brl
+      unit_of_measurement: "BRL"
+      state_class: measurement
+      availability: >
+        {{ state_attr('sensor.hadex_exchange_rates','rates') is mapping and state_attr('sensor.hadex_exchange_rates','rates').BRL is defined }}
+      state: >
+        {% set rates = state_attr('sensor.hadex_exchange_rates','rates') | default({}, true) %}
+        {{ rates.get('BRL', 0) | float(0) | round(4) }}
+
+    - name: "USD→MXN rate"
+      unique_id: hadex_usd_mxn_rate
+      icon: mdi:currency-mxn
+      unit_of_measurement: "MXN"
+      state_class: measurement
+      availability: >
+        {{ state_attr('sensor.hadex_exchange_rates','rates') is mapping and state_attr('sensor.hadex_exchange_rates','rates').MXN is defined }}
+      state: >
+        {% set rates = state_attr('sensor.hadex_exchange_rates','rates') | default({}, true) %}
+        {{ rates.get('MXN', 0) | float(0) | round(4) }}
+
+    - name: "USD→RUB rate"
+      unique_id: hadex_usd_rub_rate
+      icon: mdi:currency-rub
+      unit_of_measurement: "RUB"
+      state_class: measurement
+      availability: >
+        {{ state_attr('sensor.hadex_exchange_rates','rates') is mapping and state_attr('sensor.hadex_exchange_rates','rates').RUB is defined }}
+      state: >
+        {% set rates = state_attr('sensor.hadex_exchange_rates','rates') | default({}, true) %}
+        {{ rates.get('RUB', 0) | float(0) | round(4) }}
+
+    - name: "USD→ZAR rate"
+      unique_id: hadex_usd_zar_rate
+      icon: mdi:currency-zar
+      unit_of_measurement: "ZAR"
+      state_class: measurement
+      availability: >
+        {{ state_attr('sensor.hadex_exchange_rates','rates') is mapping and state_attr('sensor.hadex_exchange_rates','rates').ZAR is defined }}
+      state: >
+        {% set rates = state_attr('sensor.hadex_exchange_rates','rates') | default({}, true) %}
+        {{ rates.get('ZAR', 0) | float(0) | round(4) }}
+
+    - name: "USD→TRY rate"
+      unique_id: hadex_usd_try_rate
+      icon: mdi:currency-try
+      unit_of_measurement: "TRY"
+      state_class: measurement
+      availability: >
+        {{ state_attr('sensor.hadex_exchange_rates','rates') is mapping and state_attr('sensor.hadex_exchange_rates','rates').TRY is defined }}
+      state: >
+        {% set rates = state_attr('sensor.hadex_exchange_rates','rates') | default({}, true) %}
+        {{ rates.get('TRY', 0) | float(0) | round(4) }}
+
+    - name: "USD→SEK rate"
+      unique_id: hadex_usd_sek_rate
+      icon: mdi:currency-sek
+      unit_of_measurement: "SEK"
+      state_class: measurement
+      availability: >
+        {{ state_attr('sensor.hadex_exchange_rates','rates') is mapping and state_attr('sensor.hadex_exchange_rates','rates').SEK is defined }}
+      state: >
+        {% set rates = state_attr('sensor.hadex_exchange_rates','rates') | default({}, true) %}
+        {{ rates.get('SEK', 0) | float(0) | round(4) }}
+
+    - name: "USD→NOK rate"
+      unique_id: hadex_usd_nok_rate
+      icon: mdi:currency-nok
+      unit_of_measurement: "NOK"
+      state_class: measurement
+      availability: >
+        {{ state_attr('sensor.hadex_exchange_rates','rates') is mapping and state_attr('sensor.hadex_exchange_rates','rates').NOK is defined }}
+      state: >
+        {% set rates = state_attr('sensor.hadex_exchange_rates','rates') | default({}, true) %}
+        {{ rates.get('NOK', 0) | float(0) | round(4) }}
+
+    - name: "USD→DKK rate"
+      unique_id: hadex_usd_dkk_rate
+      icon: mdi:currency-dkk
+      unit_of_measurement: "DKK"
+      state_class: measurement
+      availability: >
+        {{ state_attr('sensor.hadex_exchange_rates','rates') is mapping and state_attr('sensor.hadex_exchange_rates','rates').DKK is defined }}
+      state: >
+        {% set rates = state_attr('sensor.hadex_exchange_rates','rates') | default({}, true) %}
+        {{ rates.get('DKK', 0) | float(0) | round(4) }}
+
+    - name: "USD→PLN rate"
+      unique_id: hadex_usd_pln_rate
+      icon: mdi:currency-pln
+      unit_of_measurement: "PLN"
+      state_class: measurement
+      availability: >
+        {{ state_attr('sensor.hadex_exchange_rates','rates') is mapping and state_attr('sensor.hadex_exchange_rates','rates').PLN is defined }}
+      state: >
+        {% set rates = state_attr('sensor.hadex_exchange_rates','rates') | default({}, true) %}
+        {{ rates.get('PLN', 0) | float(0) | round(4) }}
+
+    - name: "USD→CZK rate"
+      unique_id: hadex_usd_czk_rate
+      icon: mdi:currency-czk
+      unit_of_measurement: "CZK"
+      state_class: measurement
+      availability: >
+        {{ state_attr('sensor.hadex_exchange_rates','rates') is mapping and state_attr('sensor.hadex_exchange_rates','rates').CZK is defined }}
+      state: >
+        {% set rates = state_attr('sensor.hadex_exchange_rates','rates') | default({}, true) %}
+        {{ rates.get('CZK', 0) | float(0) | round(4) }}
+
+    - name: "USD→HUF rate"
+      unique_id: hadex_usd_huf_rate
+      icon: mdi:currency-huf
+      unit_of_measurement: "HUF"
+      state_class: measurement
+      availability: >
+        {{ state_attr('sensor.hadex_exchange_rates','rates') is mapping and state_attr('sensor.hadex_exchange_rates','rates').HUF is defined }}
+      state: >
+        {% set rates = state_attr('sensor.hadex_exchange_rates','rates') | default({}, true) %}
+        {{ rates.get('HUF', 0) | float(0) | round(2) }}

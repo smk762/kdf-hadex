@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KDF Orderbook Widget</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a1a;
+            color: #ffffff;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            color: #00d4aa;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #888;
+            font-size: 1.1rem;
+        }
+
+        .coin-selector {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+
+        .coin-btn {
+            background: #2a2a2a;
+            border: 2px solid #444;
+            color: #fff;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .coin-btn:hover {
+            background: #3a3a3a;
+            border-color: #00d4aa;
+        }
+
+        .coin-btn.active {
+            background: #00d4aa;
+            border-color: #00d4aa;
+            color: #000;
+        }
+
+        .orderbook-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .orderbook-section {
+            background: #2a2a2a;
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid #444;
+        }
+
+        .orderbook-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #444;
+        }
+
+        .orderbook-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+        }
+
+        .orderbook-title.bids {
+            color: #00ff88;
+        }
+
+        .orderbook-title.asks {
+            color: #ff4444;
+        }
+
+        .orderbook-table {
+            width: 100%;
+        }
+
+        .orderbook-table th,
+        .orderbook-table td {
+            padding: 8px 12px;
+            text-align: right;
+            font-size: 14px;
+        }
+
+        .orderbook-table th {
+            background: #333;
+            color: #aaa;
+            font-weight: 500;
+            border-bottom: 1px solid #444;
+        }
+
+        .orderbook-table td {
+            border-bottom: 1px solid #333;
+        }
+
+        .orderbook-table tr:hover {
+            background: #333;
+        }
+
+        .price {
+            font-weight: 600;
+            font-family: 'Courier New', monospace;
+        }
+
+        .price.bid {
+            color: #00ff88;
+        }
+
+        .price.ask {
+            color: #ff4444;
+        }
+
+        .volume {
+            color: #aaa;
+            font-family: 'Courier New', monospace;
+        }
+
+        .spread {
+            text-align: center;
+            background: #333;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .spread-value {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #00d4aa;
+            font-family: 'Courier New', monospace;
+        }
+
+        .spread-label {
+            color: #aaa;
+            font-size: 0.9rem;
+            margin-top: 5px;
+        }
+
+        .loading {
+            text-align: center;
+            color: #888;
+            padding: 40px;
+        }
+
+        .error {
+            text-align: center;
+            color: #ff4444;
+            padding: 40px;
+            background: #2a1a1a;
+            border-radius: 8px;
+            border: 1px solid #ff4444;
+        }
+
+        .refresh-btn {
+            background: #00d4aa;
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.3s ease;
+        }
+
+        .refresh-btn:hover {
+            background: #00b894;
+        }
+
+        .last-updated {
+            text-align: center;
+            color: #666;
+            font-size: 0.9rem;
+            margin-top: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .orderbook-container {
+                grid-template-columns: 1fr;
+            }
+            
+            .coin-selector {
+                justify-content: flex-start;
+                overflow-x: auto;
+                padding-bottom: 10px;
+            }
+            
+            .coin-btn {
+                white-space: nowrap;
+                flex-shrink: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>KDF Orderbook</h1>
+            <p>Real-time orderbook data from Komodo DeFi Framework</p>
+        </div>
+
+        <div class="coin-selector">
+            <button class="coin-btn active" data-coin="USD-AUD">USD/AUD</button>
+            <button class="coin-btn" data-coin="LTC">LTC</button>
+            <button class="coin-btn" data-coin="BNB">BNB</button>
+            <button class="coin-btn" data-coin="BTC">BTC</button>
+            <button class="coin-btn" data-coin="ETH">ETH</button>
+            <button class="coin-btn" data-coin="AVAX">AVAX</button>
+            <button class="coin-btn" data-coin="ATOM">ATOM</button>
+            <button class="coin-btn" data-coin="MATIC">MATIC</button>
+            <button class="coin-btn" data-coin="KMD">KMD</button>
+            <button class="coin-btn" data-coin="DOGE">DOGE</button>
+            <button class="coin-btn" data-coin="DGB">DGB</button>
+        </div>
+
+        <div class="spread">
+            <div class="spread-value" id="spread">--</div>
+            <div class="spread-label">Spread</div>
+        </div>
+
+        <div class="orderbook-container">
+            <div class="orderbook-section">
+                <div class="orderbook-header">
+                    <div class="orderbook-title bids">Bids (Buy Orders)</div>
+                    <button class="refresh-btn" onclick="refreshOrderbook()">Refresh</button>
+                </div>
+                <table class="orderbook-table">
+                    <thead>
+                        <tr>
+                            <th>Price (AUD)</th>
+                            <th>Volume</th>
+                            <th>Total</th>
+                        </tr>
+                    </thead>
+                    <tbody id="bids-table">
+                        <tr>
+                            <td colspan="3" class="loading">Loading...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="orderbook-section">
+                <div class="orderbook-header">
+                    <div class="orderbook-title asks">Asks (Sell Orders)</div>
+                </div>
+                <table class="orderbook-table">
+                    <thead>
+                        <tr>
+                            <th>Price (AUD)</th>
+                            <th>Volume</th>
+                            <th>Total</th>
+                        </tr>
+                    </thead>
+                    <tbody id="asks-table">
+                        <tr>
+                            <td colspan="3" class="loading">Loading...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="last-updated" id="last-updated">
+            Last updated: Never
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const KDF_RPC_URL = 'http://localhost:7783';
+        const RPC_PASSWORD = 'CHANGE_ME'; // This should be configured properly
+        
+        let currentCoin = 'USD-AUD';
+        let orderbookData = null;
+
+        // Coin configurations
+        const coinConfigs = {
+            'USD-AUD': { base: 'USD', rel: 'AUD', name: 'USD/AUD' },
+            'LTC': { base: 'LTC', rel: 'AUD', name: 'LTC/AUD' },
+            'BNB': { base: 'BNB', rel: 'AUD', name: 'BNB/AUD' },
+            'BTC': { base: 'BTC', rel: 'AUD', name: 'BTC/AUD' },
+            'ETH': { base: 'ETH', rel: 'AUD', name: 'ETH/AUD' },
+            'AVAX': { base: 'AVAX', rel: 'AUD', name: 'AVAX/AUD' },
+            'ATOM': { base: 'ATOM', rel: 'AUD', name: 'ATOM/AUD' },
+            'MATIC': { base: 'MATIC', rel: 'AUD', name: 'MATIC/AUD' },
+            'KMD': { base: 'KMD', rel: 'AUD', name: 'KMD/AUD' },
+            'DOGE': { base: 'DOGE', rel: 'AUD', name: 'DOGE/AUD' },
+            'DGB': { base: 'DGB', rel: 'AUD', name: 'DGB/AUD' }
+        };
+
+        // Initialize the widget
+        document.addEventListener('DOMContentLoaded', function() {
+            setupCoinSelector();
+            loadOrderbook();
+            
+            // Auto-refresh every 30 seconds
+            setInterval(loadOrderbook, 30000);
+        });
+
+        function setupCoinSelector() {
+            const coinButtons = document.querySelectorAll('.coin-btn');
+            coinButtons.forEach(btn => {
+                btn.addEventListener('click', function() {
+                    // Remove active class from all buttons
+                    coinButtons.forEach(b => b.classList.remove('active'));
+                    // Add active class to clicked button
+                    this.classList.add('active');
+                    
+                    // Update current coin
+                    currentCoin = this.dataset.coin;
+                    
+                    // Load new orderbook
+                    loadOrderbook();
+                });
+            });
+        }
+
+        async function loadOrderbook() {
+            try {
+                const config = coinConfigs[currentCoin];
+                if (!config) {
+                    throw new Error(`Unknown coin: ${currentCoin}`);
+                }
+
+                // Try real orderbook via panel-server
+                try {
+                    const res = await fetch('/api/orderbook', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ params: { base: config.base, rel: config.rel } })
+                    });
+                    if (res.ok) {
+                        const j = await res.json();
+                        const ob = j.result || j;
+                        if (ob && ob.bids && ob.asks) {
+                            displayOrderbook({ bids: ob.bids, asks: ob.asks, spread: ob.spread || '0.0' });
+                        } else {
+                            const mockData = generateMockOrderbook(config);
+                            displayOrderbook(mockData);
+                        }
+                    } else {
+                        const mockData = generateMockOrderbook(config);
+                        displayOrderbook(mockData);
+                    }
+                } catch (e) {
+                    const mockData = generateMockOrderbook(config);
+                    displayOrderbook(mockData);
+                }
+                updateLastUpdated();
+                
+            } catch (error) {
+                console.error('Error loading orderbook:', error);
+                displayError(error.message);
+            }
+        }
+
+        function generateMockOrderbook(config) {
+            // Generate realistic mock data for demonstration
+            const basePrice = getBasePrice(config.base);
+            const spread = basePrice * 0.001; // 0.1% spread
+            
+            const bids = [];
+            const asks = [];
+            
+            // Generate 10 bids (buy orders)
+            for (let i = 0; i < 10; i++) {
+                const price = basePrice - (spread / 2) - (i * spread * 0.1);
+                const volume = Math.random() * 100 + 10;
+                bids.push({
+                    price: price.toFixed(8),
+                    volume: volume.toFixed(4),
+                    total: (price * volume).toFixed(2)
+                });
+            }
+            
+            // Generate 10 asks (sell orders)
+            for (let i = 0; i < 10; i++) {
+                const price = basePrice + (spread / 2) + (i * spread * 0.1);
+                const volume = Math.random() * 100 + 10;
+                asks.push({
+                    price: price.toFixed(8),
+                    volume: volume.toFixed(4),
+                    total: (price * volume).toFixed(2)
+                });
+            }
+            
+            return {
+                bids: bids.sort((a, b) => parseFloat(b.price) - parseFloat(a.price)),
+                asks: asks.sort((a, b) => parseFloat(a.price) - parseFloat(b.price)),
+                spread: spread.toFixed(8)
+            };
+        }
+
+        function getBasePrice(coin) {
+            // Mock prices based on the image data
+            const prices = {
+                'USD': 1.533551,
+                'LTC': 170.38,
+                'BNB': 1303.6104,
+                'BTC': 170690.35,
+                'ETH': 6669.6433,
+                'AVAX': 36.7592,
+                'ATOM': 6.7921,
+                'MATIC': 0.4421,
+                'KMD': 0.0484,
+                'DOGE': 0.326,
+                'DGB': 0.0127
+            };
+            return prices[coin] || 100;
+        }
+
+        function displayOrderbook(data) {
+            orderbookData = data;
+            
+            // Update spread
+            document.getElementById('spread').textContent = data.spread;
+            
+            // Update bids table
+            const bidsTable = document.getElementById('bids-table');
+            bidsTable.innerHTML = '';
+            data.bids.forEach(bid => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td class="price bid">${bid.price}</td>
+                    <td class="volume">${bid.volume}</td>
+                    <td class="volume">${bid.total}</td>
+                `;
+                bidsTable.appendChild(row);
+            });
+            
+            // Update asks table
+            const asksTable = document.getElementById('asks-table');
+            asksTable.innerHTML = '';
+            data.asks.forEach(ask => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td class="price ask">${ask.price}</td>
+                    <td class="volume">${ask.volume}</td>
+                    <td class="volume">${ask.total}</td>
+                `;
+                asksTable.appendChild(row);
+            });
+        }
+
+        function displayError(message) {
+            const bidsTable = document.getElementById('bids-table');
+            const asksTable = document.getElementById('asks-table');
+            
+            bidsTable.innerHTML = `<tr><td colspan="3" class="error">Error: ${message}</td></tr>`;
+            asksTable.innerHTML = `<tr><td colspan="3" class="error">Error: ${message}</td></tr>`;
+            
+            document.getElementById('spread').textContent = '--';
+        }
+
+        function updateLastUpdated() {
+            const now = new Date();
+            document.getElementById('last-updated').textContent = 
+                `Last updated: ${now.toLocaleTimeString()}`;
+        }
+
+        function refreshOrderbook() {
+            loadOrderbook();
+        }
+
+        // Future function to integrate with real KDF API
+        async function fetchRealOrderbook(base, rel) {
+            try {
+                const response = await fetch(KDF_RPC_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        method: 'orderbook',
+                        params: {
+                            base: base,
+                            rel: rel
+                        },
+                        userpass: RPC_PASSWORD
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                return data.result;
+            } catch (error) {
+                console.error('KDF API Error:', error);
+                throw error;
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+{
+    "tickers": 3600,
+    "enabled_coins": 60,
+    "peers": 60,
+    "best_orders": 30,
+    "orderbook": 10,
+    "active_swaps": 30,
+    "my_orders": 60,
+    "recent_swaps": 60
+}
+
+
