@@ -366,6 +366,58 @@ class KDFHAIntegration:
         
         logger.info("KDF data collection completed")
 
+        # Update Supervisor / Home Assistant entities for core info
+        try:
+            # Refresh selected fiat from options.json (authoritative)
+            opts = load_addon_options()
+            sel_fiat = opts.get('selected_fiat_currency', self.selected_fiat_currency)
+
+            # Prepare hadex_status entity
+            status_attrs = {
+                'friendly_name': 'HADEX Status',
+                'icon': 'mdi:chart-line',
+                'version': status_data.get('version', ''),
+                'peer_count': status_data.get('peer_count', 0),
+                'enabled_coins': status_data.get('enabled_coins', []),
+                'timestamp': status_data.get('timestamp', time.time())
+            }
+            try:
+                self.update_ha_entity('sensor.hadex_status', status_data.get('status', 'disconnected'), status_attrs)
+            except Exception as e:
+                logger.warning(f"Failed to update sensor.hadex_status: {e}")
+
+            # Prepare hadex_selected_fiat entity
+            fiat_attrs = {
+                'friendly_name': 'HADEX Selected Fiat',
+                'icon': 'mdi:currency-usd',
+                'description': 'User selected fiat currency (from addon options)',
+                'timestamp': time.time()
+            }
+            try:
+                # If no fiat selected, set state to 'N/A'
+                fiat_state = sel_fiat if sel_fiat else 'N/A'
+                self.update_ha_entity('sensor.hadex_selected_fiat', fiat_state, fiat_attrs)
+            except Exception as e:
+                logger.warning(f"Failed to update sensor.hadex_selected_fiat: {e}")
+        except Exception as e:
+            logger.error(f"Error updating HA supervisor entities: {e}")
+
+    def create_ha_entities(self):
+        """Create Home Assistant entities for KDF data.
+
+        This implementation is intentionally lightweight: the addon/HA integration
+        manages entity registration. Here we log intent and mark entities as created
+        so the run loop can continue without raising AttributeError.
+        """
+        try:
+            logger.info("Creating Home Assistant entities (stub)")
+            # In a full implementation we would call self.create_ha_entity(...) for each
+            # entity we wish to register. For now, mark as created to avoid repeated
+            # registration attempts and to allow the update loop to run.
+            self.entities_created = True
+        except Exception as e:
+            logger.error(f"Failed to create Home Assistant entities: {e}")
+
     def rpc_call(self, method: str, params: Optional[Dict[str, Any]] = None) -> Any:
         """Wrapper around KDF RPC that logs request and response for debugging.
 
