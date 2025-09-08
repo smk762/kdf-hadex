@@ -238,13 +238,24 @@ class KDFMyOrdersCard extends HTMLElement {
     async loadMyOrders() {
         try {
             // Fetch from panel server API with retry/backoff
-            const payload = await this.fetchWithBackoff((this._config.panel_api_base || '') + '/api/kdf_request', { method: 'POST', body: JSON.stringify({ method: 'my_orders' }) }, { retries: 3, minTimeout: 500 });
-            if (payload && payload.my_orders_full) {
-                const transformed = this.transformMyOrdersData(payload.my_orders_full);
+            // Batch could be used to fetch multiple things at once; here single-item batch
+            const batch = [{ method: 'my_orders' }];
+            const results = await this.fetchWithBackoff((this._config.panel_api_base || '') + '/api/kdf_request', { method: 'POST', body: batch }, { retries: 3, minTimeout: 500 });
+            const payload = Array.isArray(results) ? results[0] : results;
+            const data = payload && payload.result ? payload.result : (payload && payload.my_orders_full ? payload.my_orders_full : payload);
+            if (payload && payload.error) {
+                const err = typeof payload.error === 'string' ? payload.error : JSON.stringify(payload.error);
+                console.error('KDF error (my_orders):', err);
+                this.displayError(err);
+                return;
+            }
+            if (data) {
+                const transformed = this.transformMyOrdersData(data);
                 this.displayMyOrders(transformed);
             } else {
-                const mockData = this.generateMockMyOrders();
-                this.displayMyOrders(mockData);
+                const msg = 'No my_orders data returned from KDF';
+                console.error(msg, payload);
+                this.displayError(msg);
             }
             
             this.updateLastUpdated();
@@ -296,18 +307,29 @@ class KDFMyOrdersCard extends HTMLElement {
     }
 
     transformMyOrdersData(kdfData) {
+        // Helper: format number to 12 significant figures
+        const formatSig = (v) => {
+            const n = Number(v);
+            if (!isFinite(n)) return '0';
+            let s = n.toPrecision(12);
+            if (!s.includes('e')) s = s.replace(/\.?(0+)$/,'');
+            return s;
+        };
+
         // Transform KDF my_orders data to our display format
         const orders = [];
 
         if (kdfData && Array.isArray(kdfData)) {
             kdfData.forEach(order => {
+                const price = Number(order.price || 0);
+                const vol = Number(order.maxvolume || 0);
                 orders.push({
                     uuid: order.uuid || 'Unknown',
                     pair: `${order.base}/${order.rel}`,
                     type: order.type || 'unknown',
-                    price: parseFloat(order.price || 0).toFixed(8),
-                    volume: parseFloat(order.maxvolume || 0).toFixed(8),
-                    total: (parseFloat(order.price || 0) * parseFloat(order.maxvolume || 0)).toFixed(2),
+                    price: formatSig(price),
+                    volume: formatSig(vol),
+                    total: formatSig(price * vol),
                     createdAt: order.created_at ? new Date(order.created_at * 1000).toLocaleString() : 'Unknown',
                     status: order.status || 'active'
                 });
@@ -317,43 +339,6 @@ class KDFMyOrdersCard extends HTMLElement {
         return orders;
     }
 
-    generateMockMyOrders() {
-        const now = Date.now();
-        const mockOrders = [
-            {
-                uuid: 'order-001',
-                pair: 'BTC/AUD',
-                type: 'sell',
-                price: '175000.00',
-                volume: '0.00100000',
-                total: '175.00',
-                createdAt: new Date(now - 3600000).toLocaleString(),
-                status: 'active'
-            },
-            {
-                uuid: 'order-002',
-                pair: 'ETH/AUD',
-                type: 'buy',
-                price: '6500.00',
-                volume: '0.10000000',
-                total: '650.00',
-                createdAt: new Date(now - 7200000).toLocaleString(),
-                status: 'active'
-            },
-            {
-                uuid: 'order-003',
-                pair: 'LTC/AUD',
-                type: 'sell',
-                price: '180.00',
-                volume: '5.00000000',
-                total: '900.00',
-                createdAt: new Date(now - 10800000).toLocaleString(),
-                status: 'active'
-            }
-        ];
-
-        return mockOrders;
-    }
 
     displayMyOrders(orders) {
         this._myOrdersData = orders;

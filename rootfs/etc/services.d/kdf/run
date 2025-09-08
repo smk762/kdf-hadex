@@ -4,17 +4,6 @@ set -euo pipefail
 
 echo "[kdf] Starting kdf (KDF)"
 
-# Check if setup completed successfully
-if [[ ! -f /tmp/kdf-setup-complete ]]; then
-    echo "[kdf] ERROR: Setup did not complete successfully"
-    echo "[kdf] Please check the addon logs for detailed error messages"
-    echo "[kdf] Common issues:"
-    echo "[kdf]   - rpc_password must be set (not 'CHANGE_ME')"
-    echo "[kdf]   - wallet_password must be set (not 'CHANGE_ME')"
-    echo "[kdf]   - Check that all required configuration fields are filled"
-    exit 1
-fi
-
 # Check if kdf binary exists and is executable
 if [[ ! -f /usr/local/bin/kdf ]]; then
     echo "[kdf] ERROR: kdf binary not found at /usr/local/bin/kdf"
@@ -24,6 +13,20 @@ fi
 if [[ ! -x /usr/local/bin/kdf ]]; then
     echo "[kdf] ERROR: kdf binary is not executable"
     exit 1
+fi
+
+# Ensure MM2.json exists by invoking the generator (create/update from /data/options.json)
+GEN_PY="/usr/local/bin/generate_mm2.py"
+if [[ -f "/opt/kdf-venv/bin/python3" ]]; then
+    PYBIN="/opt/kdf-venv/bin/python3"
+else
+    PYBIN="python3"
+fi
+if [[ -f "${GEN_PY}" ]]; then
+    echo "[kdf] Generating MM2.json via ${GEN_PY}"
+    if ! ${PYBIN} "${GEN_PY}"; then
+        echo "[kdf] Warning: generate_mm2.py failed; proceeding to check existing MM2.json"
+    fi
 fi
 
 # Check if MM2.json exists
@@ -36,12 +39,11 @@ fi
 
 echo "[kdf] Binary and config checks passed"
 
-# Clean up setup completion marker
-rm -f /tmp/kdf-setup-complete
-
-# Start kdf with enhanced logging
+# Start KDF with enhanced logging and persist raw logs to /data/kdf_launch.log
 echo "[kdf] Starting KDF with enhanced logging..."
-exec /usr/local/bin/kdf 2>&1 | while IFS= read -r line; do
-    # Add timestamp and prefix to each line
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [kdf] $line"
-done
+# Ensure log file exists and is writable
+mkdir -p /data
+touch /data/kdf_launch.log || true
+exec bash -c '(/usr/local/bin/kdf 2>&1 | tee -a /data/kdf_launch.log) | while IFS= read -r line; do
+    echo "[$(date +"%Y-%m-%d %H:%M:%S")] [kdf] $line"
+done'

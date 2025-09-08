@@ -789,74 +789,14 @@
 
         async function refreshOrderbook(coinSymbol) {
             try {
-                // Try to fetch real data first, fall back to mock data if KDF is not available
-                try {
-                    const realData = await fetchRealOrderbook(coinSymbol, 'AUD');
-                    displayOrderbook(coinSymbol, realData);
-                } catch (apiError) {
-                    console.warn(`KDF API not available for ${coinSymbol}, using mock data:`, apiError.message);
-                    const mockData = generateMockOrderbook(coinSymbol);
-                    displayOrderbook(coinSymbol, mockData);
-                }
-                
-            } catch (error) {
-                console.error(`Error loading orderbook for ${coinSymbol}:`, error);
-                displayError(coinSymbol, error.message);
+                const realData = await fetchRealOrderbook(coinSymbol, 'AUD');
+                displayOrderbook(coinSymbol, realData);
+            } catch (apiError) {
+                console.error(`KDF API error loading orderbook for ${coinSymbol}:`, apiError);
+                displayError(coinSymbol, apiError && apiError.message ? apiError.message : String(apiError));
             }
         }
 
-        function generateMockOrderbook(coinSymbol) {
-            const basePrice = getBasePrice(coinSymbol);
-            const spread = basePrice * 0.001; // 0.1% spread
-            
-            const bids = [];
-            const asks = [];
-            
-            // Generate 8 bids (buy orders)
-            for (let i = 0; i < 8; i++) {
-                const price = basePrice - (spread / 2) - (i * spread * 0.1);
-                const volume = Math.random() * 100 + 10;
-                bids.push({
-                    price: price.toFixed(8),
-                    volume: volume.toFixed(4),
-                    total: (price * volume).toFixed(2)
-                });
-            }
-            
-            // Generate 8 asks (sell orders)
-            for (let i = 0; i < 8; i++) {
-                const price = basePrice + (spread / 2) + (i * spread * 0.1);
-                const volume = Math.random() * 100 + 10;
-                asks.push({
-                    price: price.toFixed(8),
-                    volume: volume.toFixed(4),
-                    total: (price * volume).toFixed(2)
-                });
-            }
-            
-            return {
-                bids: bids.sort((a, b) => parseFloat(b.price) - parseFloat(a.price)),
-                asks: asks.sort((a, b) => parseFloat(a.price) - parseFloat(b.price)),
-                spread: spread.toFixed(8)
-            };
-        }
-
-        function getBasePrice(coinSymbol) {
-            const prices = {
-                'USD': 1.533551,
-                'LTC': 170.38,
-                'BNB': 1303.6104,
-                'BTC': 170690.35,
-                'ETH': 6669.6433,
-                'AVAX': 36.7592,
-                'ATOM': 6.7921,
-                'MATIC': 0.4421,
-                'KMD': 0.0484,
-                'DOGE': 0.326,
-                'DGB': 0.0127
-            };
-            return prices[coinSymbol] || 100;
-        }
 
         function displayOrderbook(coinSymbol, data) {
             orderbookData[coinSymbol] = data;
@@ -998,30 +938,49 @@
                     }
                 }
             } catch (error) {
-                console.warn('Best orders API not available, using mock data');
-                displayBestOrders(generateMockBestOrders());
+                console.error('KDF best_orders error:', error);
+                const buyTable = document.getElementById('best-buy-orders');
+                const sellTable = document.getElementById('best-sell-orders');
+                if (buyTable) buyTable.innerHTML = `<tr><td colspan="3" class="error">Error: ${error && error.message ? error.message : String(error)}</td></tr>`;
+                if (sellTable) sellTable.innerHTML = `<tr><td colspan="3" class="error">Error: ${error && error.message ? error.message : String(error)}</td></tr>`;
             }
         }
 
         function displayBestOrders(data) {
             const buyTable = document.getElementById('best-buy-orders');
             const sellTable = document.getElementById('best-sell-orders');
-            
-            // Mock data for demonstration
-            const mockBuyOrders = [
-                { price: '169500.00', volume: '0.001', total: '169.50' },
-                { price: '169400.00', volume: '0.002', total: '338.80' },
-                { price: '169300.00', volume: '0.005', total: '846.50' }
-            ];
-            
-            const mockSellOrders = [
-                { price: '170500.00', volume: '0.001', total: '170.50' },
-                { price: '170600.00', volume: '0.002', total: '341.20' },
-                { price: '170700.00', volume: '0.005', total: '853.50' }
-            ];
-
             buyTable.innerHTML = '';
-            mockBuyOrders.forEach(order => {
+            sellTable.innerHTML = '';
+
+            if (!data) {
+                const msg = 'No best_orders data returned from KDF';
+                if (buyTable) buyTable.innerHTML = `<tr><td colspan="3" class="error">Error: ${msg}</td></tr>`;
+                if (sellTable) sellTable.innerHTML = `<tr><td colspan="3" class="error">Error: ${msg}</td></tr>`;
+                return;
+            }
+
+            // Data expected shape: { buyOrders: [...], sellOrders: [...] } or raw KDF map
+            let buyOrders = [];
+            let sellOrders = [];
+            if (data.buyOrders && Array.isArray(data.buyOrders)) {
+                buyOrders = data.buyOrders;
+            } else if (data.bids && Array.isArray(data.bids)) {
+                buyOrders = data.bids.map(b => ({ price: b.price, volume: b.maxvolume, total: (parseFloat(b.price) * parseFloat(b.maxvolume)).toFixed(2) }));
+            }
+            if (data.sellOrders && Array.isArray(data.sellOrders)) {
+                sellOrders = data.sellOrders;
+            } else if (data.asks && Array.isArray(data.asks)) {
+                sellOrders = data.asks.map(a => ({ price: a.price, volume: a.maxvolume, total: (parseFloat(a.price) * parseFloat(a.maxvolume)).toFixed(2) }));
+            }
+
+            if (buyOrders.length === 0 && sellOrders.length === 0) {
+                const msg = 'best_orders returned empty result';
+                if (buyTable) buyTable.innerHTML = `<tr><td colspan="3" class="error">Error: ${msg}</td></tr>`;
+                if (sellTable) sellTable.innerHTML = `<tr><td colspan="3" class="error">Error: ${msg}</td></tr>`;
+                return;
+            }
+
+            buyOrders.slice(0, 10).forEach(order => {
                 const row = document.createElement('tr');
                 row.innerHTML = `
                     <td class="price bid">${order.price}</td>
@@ -1031,8 +990,7 @@
                 buyTable.appendChild(row);
             });
 
-            sellTable.innerHTML = '';
-            mockSellOrders.forEach(order => {
+            sellOrders.slice(0, 10).forEach(order => {
                 const row = document.createElement('tr');
                 row.innerHTML = `
                     <td class="price ask">${order.price}</td>
@@ -1043,9 +1001,7 @@
             });
         }
 
-        function generateMockBestOrders() {
-            return { buy: [], sell: [] };
-        }
+        
 
         // Active Swaps Functions
         async function loadActiveSwaps() {
@@ -1066,39 +1022,21 @@
                     }
                 }
             } catch (error) {
-                console.warn('Active swaps API not available, using mock data');
-                displayActiveSwaps(generateMockActiveSwaps());
+                console.error('KDF active_swaps error:', error);
+                displayError('active-swaps', error && error.message ? error.message : String(error));
             }
         }
 
         function displayActiveSwaps(swaps) {
             const container = document.getElementById('active-swaps-container');
-            
+
             if (!swaps || swaps.length === 0) {
                 container.innerHTML = '<div class="no-swaps">No active swaps</div>';
                 return;
             }
 
-            // Mock data for demonstration
-            const mockSwaps = [
-                {
-                    pair: 'BTC/AUD',
-                    status: 'active',
-                    baseAmount: '0.00100000',
-                    relAmount: '170.50',
-                    progress: 75
-                },
-                {
-                    pair: 'ETH/AUD',
-                    status: 'pending',
-                    baseAmount: '0.05000000',
-                    relAmount: '333.25',
-                    progress: 25
-                }
-            ];
-
             container.innerHTML = '';
-            mockSwaps.forEach(swap => {
+            swaps.forEach(swap => {
                 const swapElement = document.createElement('div');
                 swapElement.className = 'swap-item';
                 swapElement.innerHTML = `
@@ -1126,10 +1064,6 @@
             });
         }
 
-        function generateMockActiveSwaps() {
-            return [];
-        }
-
         // My Orders Functions
         async function loadMyOrders() {
             try {
@@ -1149,45 +1083,28 @@
                     }
                 }
             } catch (error) {
-                console.warn('My orders API not available, using mock data');
-                displayMyOrders(generateMockMyOrders());
+                console.error('KDF my_orders error:', error);
+                const container = document.getElementById('my-orders-container');
+                if (container) container.innerHTML = `<div class="error">Error: ${error && error.message ? error.message : String(error)}</div>`;
             }
         }
 
         function displayMyOrders(orders) {
             const container = document.getElementById('my-orders-container');
-            
+
             if (!orders || orders.length === 0) {
                 container.innerHTML = '<div class="no-orders">No active orders</div>';
                 return;
             }
 
-            // Mock data for demonstration
-            const mockOrders = [
-                {
-                    pair: 'BTC/AUD',
-                    type: 'sell',
-                    price: '175000.00',
-                    volume: '0.00100000',
-                    total: '175.00'
-                },
-                {
-                    pair: 'ETH/AUD',
-                    type: 'buy',
-                    price: '6500.00',
-                    volume: '0.10000000',
-                    total: '650.00'
-                }
-            ];
-
             container.innerHTML = '';
-            mockOrders.forEach(order => {
+            orders.forEach(order => {
                 const orderElement = document.createElement('div');
                 orderElement.className = 'order-item';
                 orderElement.innerHTML = `
                     <div class="order-header">
                         <div class="order-pair">${order.pair}</div>
-                        <div class="order-type ${order.type}">${order.type.toUpperCase()}</div>
+                        <div class="order-type ${order.type}">${(order.type||'').toUpperCase()}</div>
                     </div>
                     <div class="order-details">
                         <div class="order-detail">
@@ -1206,10 +1123,6 @@
                 `;
                 container.appendChild(orderElement);
             });
-        }
-
-        function generateMockMyOrders() {
-            return [];
         }
 
         // Recent Swaps Functions
@@ -1231,39 +1144,22 @@
                     }
                 }
             } catch (error) {
-                console.warn('Recent swaps API not available, using mock data');
-                displayRecentSwaps(generateMockRecentSwaps());
+                console.error('KDF my_recent_swaps error:', error);
+                const container = document.getElementById('recent-swaps-container');
+                if (container) container.innerHTML = `<div class="error">Error: ${error && error.message ? error.message : String(error)}</div>`;
             }
         }
 
         function displayRecentSwaps(swaps) {
             const container = document.getElementById('recent-swaps-container');
-            
+
             if (!swaps || swaps.length === 0) {
                 container.innerHTML = '<div class="no-swaps">No recent swaps</div>';
                 return;
             }
 
-            // Mock data for demonstration
-            const mockSwaps = [
-                {
-                    pair: 'BTC/AUD',
-                    status: 'completed',
-                    baseAmount: '0.00100000',
-                    relAmount: '170.50',
-                    duration: '5m 0s'
-                },
-                {
-                    pair: 'ETH/AUD',
-                    status: 'failed',
-                    baseAmount: '0.05000000',
-                    relAmount: '333.25',
-                    duration: '10m 0s'
-                }
-            ];
-
             container.innerHTML = '';
-            mockSwaps.forEach(swap => {
+            swaps.forEach(swap => {
                 const swapElement = document.createElement('div');
                 swapElement.className = 'swap-item';
                 swapElement.innerHTML = `
@@ -1288,10 +1184,6 @@
                 `;
                 container.appendChild(swapElement);
             });
-        }
-
-        function generateMockRecentSwaps() {
-            return [];
         }
 
         // Trading Form Functions

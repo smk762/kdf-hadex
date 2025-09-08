@@ -225,13 +225,30 @@ class KDFActiveSwapsCard extends HTMLElement {
     async loadActiveSwaps() {
         try {
             // Fetch from panel server API with retry/backoff
-            const payload = await this.fetchWithBackoff((this._config.panel_api_base || '') + '/api/kdf_request', { method: 'POST', body: JSON.stringify({ method: 'active_swaps' }) }, { retries: 3, minTimeout: 500 });
-            if (payload && payload.active_swaps_full) {
-                const transformed = this.transformActiveSwapsData(payload.active_swaps_full);
+            // Use batching when possible; single-item batch here for consistency
+            const batch = [{ method: 'active_swaps' }];
+            const results = await this.fetchWithBackoff((this._config.panel_api_base || '') + '/api/kdf_request', { method: 'POST', body: batch }, { retries: 3, minTimeout: 500 });
+            let payload = null;
+            if (Array.isArray(results)) {
+                payload = results[0];
+            } else {
+                payload = results;
+            }
+
+            const data = payload && payload.result ? payload.result : (payload && payload.active_swaps_full ? payload.active_swaps_full : payload);
+            if (payload && payload.error) {
+                const err = typeof payload.error === 'string' ? payload.error : JSON.stringify(payload.error);
+                console.error('KDF error (active_swaps):', err);
+                this.displayError(err);
+                return;
+            }
+            if (data) {
+                const transformed = this.transformActiveSwapsData(data);
                 this.displayActiveSwaps(transformed);
             } else {
-                const mockData = this.generateMockActiveSwaps();
-                this.displayActiveSwaps(mockData);
+                const msg = 'No active_swaps data returned from KDF';
+                console.error(msg, payload);
+                this.displayError(msg);
             }
             
             this.updateLastUpdated();
@@ -253,7 +270,15 @@ class KDFActiveSwapsCard extends HTMLElement {
         let attempt = 0;
         while (attempt <= retries) {
             try {
-                const res = await fetch(url);
+                const fetchOpts = Object.assign({}, opts);
+                // When body is provided as object, ensure headers
+                if (fetchOpts.body && typeof fetchOpts.body === 'object') {
+                    fetchOpts.body = JSON.stringify(fetchOpts.body);
+                }
+                if (fetchOpts.body && !fetchOpts.headers) {
+                    fetchOpts.headers = { 'Content-Type': 'application/json' };
+                }
+                const res = await fetch(url, fetchOpts);
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 return await res.json();
             } catch (err) {
@@ -322,42 +347,6 @@ class KDFActiveSwapsCard extends HTMLElement {
         return 25; // pending
     }
 
-    generateMockActiveSwaps() {
-        const mockSwaps = [
-            {
-                uuid: 'swap-001',
-                pair: 'BTC/AUD',
-                status: 'active',
-                baseAmount: '0.00100000',
-                relAmount: '170.50',
-                progress: 75,
-                startedAt: new Date(Date.now() - 300000).toLocaleString(),
-                expiresAt: new Date(Date.now() + 1800000).toLocaleString()
-            },
-            {
-                uuid: 'swap-002',
-                pair: 'ETH/AUD',
-                status: 'pending',
-                baseAmount: '0.05000000',
-                relAmount: '333.25',
-                progress: 25,
-                startedAt: new Date(Date.now() - 60000).toLocaleString(),
-                expiresAt: new Date(Date.now() + 2400000).toLocaleString()
-            },
-            {
-                uuid: 'swap-003',
-                pair: 'LTC/AUD',
-                status: 'active',
-                baseAmount: '1.00000000',
-                relAmount: '170.38',
-                progress: 90,
-                startedAt: new Date(Date.now() - 600000).toLocaleString(),
-                expiresAt: new Date(Date.now() + 1200000).toLocaleString()
-            }
-        ];
-
-        return mockSwaps;
-    }
 
     displayActiveSwaps(swaps) {
         this._activeSwapsData = swaps;

@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>KDF Add-on Settings</title>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;background:#0f0f0f;color:#fff;padding:16px}
+    .card{background:#1f1f1f;padding:16px;border-radius:8px;margin-bottom:12px}
+    label{display:block;margin-top:8px}
+    input,select,textarea{width:100%;padding:8px;background:#0f0f0f;border:1px solid #333;color:#fff;border-radius:6px}
+    button{padding:8px 12px;border-radius:6px;background:#00d4aa;border:none;color:#000}
+  </style>
+</head>
+<body>
+  <h2>KDF Add-on Settings</h2>
+  <div class="card">
+    <label>rpc_password</label>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input id="rpc_password" type="password" style="flex:1" readonly />
+      <button id="edit-rpc-password" title="Edit rpc password" style="padding:6px;border-radius:6px">✏️</button>
+    </div>
+    <label>wallet_password</label>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input id="wallet_password" type="password" style="flex:1" readonly />
+      <button id="edit-wallet-password" title="Edit wallet password" style="padding:6px;border-radius:6px">✏️</button>
+    </div>
+    <label>import_mnemonic</label>
+    <select id="import_mnemonic"><option value="false">false</option><option value="true">true</option></select>
+    <label>no_login</label>
+    <select id="no_login"><option value="true">true</option><option value="false">false</option></select>
+    <label>bip39_mnemonic</label>
+    <textarea id="bip39_mnemonic" rows="3"></textarea>
+    <label>rpc_port</label>
+    <input id="rpc_port" type="number" />
+    <label>netid</label>
+    <input id="netid" type="number" />
+    <label>kdf_rpcip</label>
+    <input id="kdf_rpcip" type="text" />
+    <label>Selected fiat</label>
+    <select id="selected_fiat"><option>USD</option></select>
+    <div style="margin-top:12px;text-align:right"><button id="save">Save</button></div>
+  </div>
+  <script>
+    async function load(){
+      const r = await fetch('./api/options');
+      if(!r.ok) return;
+      const j = await r.json();
+      const o = j.options || {};
+      document.getElementById('rpc_password').value = o.rpc_password || '';
+      document.getElementById('wallet_password').value = o.wallet_password || '';
+      // set readonly initially
+      document.getElementById('rpc_password').readOnly = true;
+      document.getElementById('wallet_password').readOnly = true;
+      document.getElementById('import_mnemonic').value = String(o.import_mnemonic || false);
+      document.getElementById('no_login').value = String(o.no_login !== undefined ? o.no_login : true);
+      document.getElementById('bip39_mnemonic').value = o.bip39_mnemonic || '';
+      document.getElementById('rpc_port').value = o.rpc_port || 7783;
+      document.getElementById('netid').value = o.netid || 8762;
+      document.getElementById('kdf_rpcip').value = o.kdf_rpcip || '0.0.0.0';
+      // populate fiat dropdown from panel server
+      try {
+        const fr = await fetch('./api/supported_fiats');
+        if (fr.ok) {
+          const fj = await fr.json();
+          const select = document.getElementById('selected_fiat');
+          select.innerHTML = '';
+          const fiats = fj.fiats || [];
+          // ensure USD present and default
+          if (fiats.indexOf('usd') === -1) fiats.unshift('usd');
+          fiats.forEach(f => {
+            const opt = document.createElement('option');
+            opt.value = f.toUpperCase();
+            opt.textContent = f.toUpperCase();
+            select.appendChild(opt);
+          });
+          // set current selection from options (default USD)
+          select.value = (o.selected_fiat || 'USD').toUpperCase();
+        }
+      } catch (e) {
+        // leave default USD
+      }
+    }
+    document.getElementById('save').addEventListener('click', async function(){
+      const payload = {
+        rpc_password: document.getElementById('rpc_password').value,
+        wallet_password: document.getElementById('wallet_password').value,
+        import_mnemonic: document.getElementById('import_mnemonic').value === 'true',
+        no_login: document.getElementById('no_login').value === 'true',
+        bip39_mnemonic: document.getElementById('bip39_mnemonic').value,
+        rpc_port: parseInt(document.getElementById('rpc_port').value,10),
+        netid: parseInt(document.getElementById('netid').value,10),
+        kdf_rpcip: document.getElementById('kdf_rpcip').value,
+        selected_fiat_currency: (document.getElementById('selected_fiat').value || 'USD')
+      };
+      const r = await fetch('./api/merge_options',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      if(r.ok) alert('Saved'); else alert('Save failed');
+      // notify other panels to refresh immediately
+      try { localStorage.setItem('kdf.options.updated', String(Date.now())); } catch(e) {}
+    });
+    // toggle edit buttons
+    document.getElementById('edit-rpc-password').addEventListener('click', function(){
+      const el = document.getElementById('rpc_password');
+      el.readOnly = !el.readOnly;
+      this.textContent = el.readOnly ? '✏️' : '💾';
+      if(!el.readOnly){ el.focus(); el.select(); }
+    });
+    document.getElementById('edit-wallet-password').addEventListener('click', function(){
+      const el = document.getElementById('wallet_password');
+      el.readOnly = !el.readOnly;
+      this.textContent = el.readOnly ? '✏️' : '💾';
+      if(!el.readOnly){ el.focus(); el.select(); }
+    });
+
+    load();
+  </script>
+</body>
+</html>
+
+

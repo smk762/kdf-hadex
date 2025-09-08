@@ -229,22 +229,20 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>KDF Orderbook</h1>
+            <h1 id="page-title">KDF Orderbook</h1>
+            <p id="pair-name">Pair: --/--</p>
             <p>Real-time orderbook data from Komodo DeFi Framework</p>
         </div>
 
-        <div class="coin-selector">
-            <button class="coin-btn active" data-coin="USD-AUD">USD/AUD</button>
-            <button class="coin-btn" data-coin="LTC">LTC</button>
-            <button class="coin-btn" data-coin="BNB">BNB</button>
-            <button class="coin-btn" data-coin="BTC">BTC</button>
-            <button class="coin-btn" data-coin="ETH">ETH</button>
-            <button class="coin-btn" data-coin="AVAX">AVAX</button>
-            <button class="coin-btn" data-coin="ATOM">ATOM</button>
-            <button class="coin-btn" data-coin="MATIC">MATIC</button>
-            <button class="coin-btn" data-coin="KMD">KMD</button>
-            <button class="coin-btn" data-coin="DOGE">DOGE</button>
-            <button class="coin-btn" data-coin="DGB">DGB</button>
+        <div class="coin-selector" style="gap:8px;align-items:center;">
+            <div>
+                <label for="base-select" style="display:block;font-size:0.9rem;color:#aaa;margin-bottom:6px">Base coin</label>
+                <select id="base-select" style="padding:8px;border-radius:6px;background:#2a2a2a;color:#fff;border:1px solid #444;min-width:160px"></select>
+            </div>
+            <div>
+                <label for="rel-select" style="display:block;font-size:0.9rem;color:#aaa;margin-bottom:6px">Rel coin</label>
+                <select id="rel-select" style="padding:8px;border-radius:6px;background:#2a2a2a;color:#fff;border:1px solid #444;min-width:120px"></select>
+            </div>
         </div>
 
         <div class="spread">
@@ -261,14 +259,18 @@
                 <table class="orderbook-table">
                     <thead>
                         <tr>
-                            <th>Price (AUD)</th>
-                            <th>Volume</th>
-                            <th>Total</th>
+                            <th>Ticker</th>
+                            <th>Price</th>
+                            <th>Price (<span id="fiat-unit-asks">AUD</span>)</th>
+                            <th>Min Rel Vol</th>
+                            <th>Max Rel Vol</th>
+                            <th>Min Base Vol</th>
+                            <th>Max Base Vol</th>
                         </tr>
                     </thead>
                     <tbody id="bids-table">
                         <tr>
-                            <td colspan="3" class="loading">Loading...</td>
+                            <td colspan="7" class="loading">Loading...</td>
                         </tr>
                     </tbody>
                 </table>
@@ -281,14 +283,18 @@
                 <table class="orderbook-table">
                     <thead>
                         <tr>
-                            <th>Price (AUD)</th>
-                            <th>Volume</th>
-                            <th>Total</th>
+                            <th>Ticker</th>
+                            <th>Price</th>
+                            <th>Price (<span id="fiat-unit-asks">AUD</span>)</th>
+                            <th>Min Rel Vol</th>
+                            <th>Max Rel Vol</th>
+                            <th>Min Base Vol</th>
+                            <th>Max Base Vol</th>
                         </tr>
                     </thead>
                     <tbody id="asks-table">
                         <tr>
-                            <td colspan="3" class="loading">Loading...</td>
+                            <td colspan="7" class="loading">Loading...</td>
                         </tr>
                     </tbody>
                 </table>
@@ -305,27 +311,95 @@
         const KDF_RPC_URL = 'http://localhost:7783';
         const RPC_PASSWORD = 'CHANGE_ME'; // This should be configured properly
         
-        let currentCoin = 'USD-AUD';
+        let currentBase = 'USD';
+        let currentRel = 'AUD';
         let orderbookData = null;
 
         // Coin configurations
-        const coinConfigs = {
-            'USD-AUD': { base: 'USD', rel: 'AUD', name: 'USD/AUD' },
-            'LTC': { base: 'LTC', rel: 'AUD', name: 'LTC/AUD' },
-            'BNB': { base: 'BNB', rel: 'AUD', name: 'BNB/AUD' },
-            'BTC': { base: 'BTC', rel: 'AUD', name: 'BTC/AUD' },
-            'ETH': { base: 'ETH', rel: 'AUD', name: 'ETH/AUD' },
-            'AVAX': { base: 'AVAX', rel: 'AUD', name: 'AVAX/AUD' },
-            'ATOM': { base: 'ATOM', rel: 'AUD', name: 'ATOM/AUD' },
-            'MATIC': { base: 'MATIC', rel: 'AUD', name: 'MATIC/AUD' },
-            'KMD': { base: 'KMD', rel: 'AUD', name: 'KMD/AUD' },
-            'DOGE': { base: 'DOGE', rel: 'AUD', name: 'DOGE/AUD' },
-            'DGB': { base: 'DGB', rel: 'AUD', name: 'DGB/AUD' }
-        };
+        // coinConfigs will be populated from coins_config.json via panel-server
+        const coinConfigs = {};
 
         // Initialize the widget
         document.addEventListener('DOMContentLoaded', function() {
+            // populate rel select and base buttons from SUPPORTED_COINS if available
+            // Fetch coins config from API and populate selectors (async)
+            (async function () {
+                try {
+                    const resp = await fetch('./api/coins_config');
+                    if (resp.ok) {
+                        const cj = await resp.json();
+                        const cfg = cj.coins_config || {};
+                        window.COINS_CONFIG = cfg;
+                        // populate base and rel selects
+                        const baseSel = document.getElementById('base-select');
+                        const relSel = document.getElementById('rel-select');
+                        if (baseSel) baseSel.innerHTML = '';
+                        if (relSel) relSel.innerHTML = '';
+                        Object.keys(cfg).forEach(t => {
+                            const info = cfg[t] || {};
+                            const label = info && info.name ? info.name : t;
+                            if (baseSel) {
+                                const o = document.createElement('option'); o.value = t; o.textContent = `${t} — ${label}`; baseSel.appendChild(o);
+                            }
+                            if (relSel) {
+                                const o2 = document.createElement('option'); o2.value = t; o2.textContent = label; relSel.appendChild(o2);
+                            }
+                        });
+                    } else {
+                        window.COINS_CONFIG = {};
+                    }
+                } catch (e) {
+                    console.error('Failed to fetch coins_config:', e);
+                    window.COINS_CONFIG = {};
+                }
+            })();
+
             setupCoinSelector();
+            // set fiat header immediately from saved options so header shows correct unit
+            (async function(){
+                try{
+                    const optsResp = await fetch('./api/options');
+                    if(optsResp.ok){
+                        const oj = await optsResp.json();
+                        const cur = (oj.options||{}).selected_fiat_currency || null;
+                        if(cur){
+                            const el = document.getElementById('fiat-unit');
+                            const el2 = document.getElementById('fiat-unit-asks');
+                            if(el) el.textContent = cur.toUpperCase();
+                            if(el2) el2.textContent = cur.toUpperCase();
+                        }
+                    }
+                }catch(e){/*ignore*/}
+                // listen for localStorage changes (so coins.html can update header immediately)
+                try{
+                    window.addEventListener('storage', (ev) => {
+                        if(ev.key === 'kdf_selected_fiat'){
+                            const cur = ev.newValue;
+                            const el = document.getElementById('fiat-unit');
+                            const el2 = document.getElementById('fiat-unit-asks');
+                            if(el) el.textContent = (cur||'').toUpperCase();
+                            if(el2) el2.textContent = (cur||'').toUpperCase();
+                        }
+                    });
+                }catch(e){}
+            })();
+            // check URL query params for deep-links
+            try {
+                const params = new URLSearchParams(window.location.search);
+                const b = params.get('base');
+                const r = params.get('rel');
+                currentBase = b || 'DGB';
+                currentRel = r || 'KMD';
+                // mark active base button
+                const baseSel = document.getElementById('base-select');
+                if (baseSel) baseSel.value = currentBase;
+                const relSel = document.getElementById('rel-select');
+                if (relSel) relSel.value = currentRel;
+            } catch (e) {
+                currentBase = 'DGB';
+                currentRel = 'KMD';
+            }
+
             loadOrderbook();
             
             // Auto-refresh every 30 seconds
@@ -340,46 +414,105 @@
                     coinButtons.forEach(b => b.classList.remove('active'));
                     // Add active class to clicked button
                     this.classList.add('active');
-                    
-                    // Update current coin
-                    currentCoin = this.dataset.coin;
-                    
+
+                    // Update current base coin
+                    currentBase = this.dataset.coin;
+                    document.getElementById('pair-name').textContent = `Pair: ${currentBase}/${currentRel}`;
+
                     // Load new orderbook
                     loadOrderbook();
                 });
             });
+
+            // Rel selector change
+            const relSel = document.getElementById('rel-select');
+            if (relSel) {
+                relSel.addEventListener('change', function() {
+                    currentRel = this.value;
+                    document.getElementById('pair-name').textContent = `Pair: ${currentBase}/${currentRel}`;
+                    loadOrderbook();
+                });
+            }
         }
 
         async function loadOrderbook() {
             try {
-                const config = coinConfigs[currentCoin];
-                if (!config) {
-                    throw new Error(`Unknown coin: ${currentCoin}`);
-                }
+                const cfg = coinConfigs[currentBase] || { base: currentBase };
+                const base = cfg.base;
+                const rel = currentRel;
+                document.getElementById('pair-name').textContent = `Pair: ${base}/${rel}`;
 
-                // Try real orderbook via panel-server
+                // Use panel server kdf_request endpoint to fetch orderbook
                 try {
-                    const res = await fetch('/api/orderbook', {
+                    const res = await fetch('./api/kdf_request', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ params: { base: config.base, rel: config.rel } })
+                        body: JSON.stringify({ method: 'orderbook', params: { base: base, rel: rel } })
                     });
-                    if (res.ok) {
-                        const j = await res.json();
-                        const ob = j.result || j;
-                        if (ob && ob.bids && ob.asks) {
-                            displayOrderbook({ bids: ob.bids, asks: ob.asks, spread: ob.spread || '0.0' });
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    const j = await res.json();
+
+                    // Response may be raw, or wrapped as {mmrpc:'2.0', result: {...}}
+                    let ob = j && (j.result || j);
+                    if (ob && ob.result) ob = ob.result;
+                    // also support array wrapper
+                    if (Array.isArray(ob) && ob.length) ob = ob[0];
+
+                    if (!ob) {
+                        console.error('Orderbook: empty response', j);
+                        displayError('Empty orderbook response');
+                    } else if (ob.error) {
+                        const em = typeof ob.error === 'string' ? ob.error : JSON.stringify(ob.error);
+                        displayError(em);
+                    } else if (ob.bids && ob.asks) {
+                        // gather UI/context data (selected fiat, available fiats, kdf tickers) to compute fiat prices
+                        const [optsResp, afResp, cgResp, tkResp] = await Promise.allSettled([
+                            fetch('./api/options'),
+                            fetch('./api/available_fiats'),
+                            fetch('./api/coingecko_prices'),
+                            fetch('./api/tickers')
+                        ]);
+                        let selectedFiat = null;
+                        let availableFiats = [];
+                        let coingeckoPrices = null;
+                        let kdfTickers = null;
+                        try{ if(optsResp.status==='fulfilled' && optsResp.value.ok){ const oj = await optsResp.value.json(); selectedFiat = (oj.options||{}).selected_fiat_currency || null } }catch(e){}
+                        try{ if(afResp.status==='fulfilled' && afResp.value.ok){ const afj = await afResp.value.json(); availableFiats = afj.available_fiats || []; } }catch(e){}
+                        try{ if(cgResp.status==='fulfilled' && cgResp.value.ok){ const cj = await cgResp.value.json(); coingeckoPrices = cj.prices || {}; /* filter to supported coins */ const supported = Object.keys(window.COINS_CONFIG||{}); const filtered = {}; Object.keys(coingeckoPrices).forEach(k=>{ const t = (coingeckoPrices[k] && coingeckoPrices[k].coingecko_id) ? (coingeckoPrices[k].ticker || null) : null; /* try to map by ticker fallback */ }); /* coingecko endpoint already returned mapping by ticker in panel-server; we'll trust returned keys */ } }catch(e){}
+                        try{ if(tkResp.status==='fulfilled' && tkResp.value.ok){ const tj = await tkResp.value.json(); kdfTickers = (tj && (tj.result||tj)) || null; } }catch(e){}
+
+                        displayOrderbook({ bids: ob.bids, asks: ob.asks, spread: ob.spread || '0.0', selectedFiat, availableFiats, coingeckoPrices, kdfTickers, base: base, rel: rel });
+                    } else if (ob.orders) {
+                        // some KDF formats nest under orders -> pair -> { bids, asks }
+                        // Try to find first pair entry
+                        const firstKey = Object.keys(ob.orders || {})[0];
+                        const o = ob.orders && ob.orders[firstKey];
+                        if (o && (o.bids || o.asks)) {
+                            // same context fetch as above
+                            const [optsResp, afResp, cgResp, tkResp] = await Promise.allSettled([
+                                fetch('./api/options'),
+                                fetch('./api/available_fiats'),
+                                fetch('./api/coingecko_prices'),
+                                fetch('./api/tickers')
+                            ]);
+                            let selectedFiat = null; let availableFiats = []; let coingeckoPrices = null; let kdfTickers = null;
+                            try{ if(optsResp.status==='fulfilled' && optsResp.value.ok){ const oj = await optsResp.value.json(); selectedFiat = (oj.options||{}).selected_fiat_currency || null } }catch(e){}
+                            try{ if(afResp.status==='fulfilled' && afResp.value.ok){ const afj = await afResp.value.json(); availableFiats = afj.available_fiats || []; } }catch(e){}
+                            try{ if(cgResp.status==='fulfilled' && cgResp.value.ok){ const cj = await cgResp.value.json(); coingeckoPrices = cj.prices || {}; } }catch(e){}
+                            try{ if(tkResp.status==='fulfilled' && tkResp.value.ok){ const tj = await tkResp.value.json(); kdfTickers = (tj && (tj.result||tj)) || null; } }catch(e){}
+
+                            displayOrderbook({ bids: o.bids || [], asks: o.asks || [], spread: ob.spread || '0.0', selectedFiat, availableFiats, coingeckoPrices, kdfTickers, base: base, rel: rel });
                         } else {
-                            const mockData = generateMockOrderbook(config);
-                            displayOrderbook(mockData);
+                            console.error('Orderbook: unexpected response shape', j);
+                            displayError('Unexpected orderbook response');
                         }
                     } else {
-                        const mockData = generateMockOrderbook(config);
-                        displayOrderbook(mockData);
+                        console.error('Orderbook: unexpected response shape', j);
+                        displayError('Unexpected orderbook response');
                     }
                 } catch (e) {
-                    const mockData = generateMockOrderbook(config);
-                    displayOrderbook(mockData);
+                    console.error('Orderbook fetch error:', e);
+                    displayError(e && e.message ? e.message : String(e));
                 }
                 updateLastUpdated();
                 
@@ -389,89 +522,107 @@
             }
         }
 
-        function generateMockOrderbook(config) {
-            // Generate realistic mock data for demonstration
-            const basePrice = getBasePrice(config.base);
-            const spread = basePrice * 0.001; // 0.1% spread
-            
-            const bids = [];
-            const asks = [];
-            
-            // Generate 10 bids (buy orders)
-            for (let i = 0; i < 10; i++) {
-                const price = basePrice - (spread / 2) - (i * spread * 0.1);
-                const volume = Math.random() * 100 + 10;
-                bids.push({
-                    price: price.toFixed(8),
-                    volume: volume.toFixed(4),
-                    total: (price * volume).toFixed(2)
-                });
-            }
-            
-            // Generate 10 asks (sell orders)
-            for (let i = 0; i < 10; i++) {
-                const price = basePrice + (spread / 2) + (i * spread * 0.1);
-                const volume = Math.random() * 100 + 10;
-                asks.push({
-                    price: price.toFixed(8),
-                    volume: volume.toFixed(4),
-                    total: (price * volume).toFixed(2)
-                });
-            }
-            
-            return {
-                bids: bids.sort((a, b) => parseFloat(b.price) - parseFloat(a.price)),
-                asks: asks.sort((a, b) => parseFloat(a.price) - parseFloat(b.price)),
-                spread: spread.toFixed(8)
-            };
-        }
-
-        function getBasePrice(coin) {
-            // Mock prices based on the image data
-            const prices = {
-                'USD': 1.533551,
-                'LTC': 170.38,
-                'BNB': 1303.6104,
-                'BTC': 170690.35,
-                'ETH': 6669.6433,
-                'AVAX': 36.7592,
-                'ATOM': 6.7921,
-                'MATIC': 0.4421,
-                'KMD': 0.0484,
-                'DOGE': 0.326,
-                'DGB': 0.0127
-            };
-            return prices[coin] || 100;
+        function round6(v) {
+            const n = Number(v);
+            if (!isFinite(n)) return v;
+            return n.toFixed(6);
         }
 
         function displayOrderbook(data) {
             orderbookData = data;
-            
+
             // Update spread
             document.getElementById('spread').textContent = data.spread;
-            
-            // Update bids table
+
+            // Helpers to extract decimals
+            const extractDecimal = (v) => {
+                if (v === null || v === undefined) return '';
+                if (typeof v === 'string' || typeof v === 'number') return String(v);
+                if (v && typeof v === 'object' && v.decimal) return String(v.decimal);
+                return '';
+            };
+
+            const computeFiatForPrice = (priceStr, coin, ctx) => {
+                try{
+                    if(!ctx) return 'N/A';
+                    const selectedFiat = ctx.selectedFiat;
+                    const availableFiats = ctx.availableFiats || [];
+                    const coingeckoPrices = ctx.coingeckoPrices || {};
+                    const kdfTickers = ctx.kdfTickers || {};
+                    // Prefer CoinGecko price for coin (mapped in coingeckoPrices by ticker)
+                    if(coingeckoPrices && Object.keys(coingeckoPrices).length){
+                        const cp = coingeckoPrices[coin] || coingeckoPrices[coin.toUpperCase()];
+                        if(cp && cp.price){
+                            const fiatVal = cp.fiat || (ctx.selectedFiat && ctx.selectedFiat.toLowerCase()) || null;
+                            // coingeckoPrices price is already in selected fiat when available
+                            const p = Number(priceStr);
+                            const priceInFiat = Number(cp.price);
+                            if(!isNaN(p) && isFinite(priceInFiat)){
+                                const v = p * priceInFiat;
+                                return isFinite(v) ? v.toFixed(2) : 'N/A';
+                            }
+                        }
+                    }
+                    // fallback to KDF tickers USD-based
+                    if(!selectedFiat || !kdfTickers) return 'N/A';
+                    const kk = (kdfTickers[coin] || kdfTickers[coin && coin.toUpperCase()]);
+                    let usdPrice = null;
+                    if(kk){ if(typeof kk === 'number') usdPrice = kk; else if(kk.price) usdPrice = Number(kk.price); else if(kk.usd_price) usdPrice = Number(kk.usd_price); }
+                    if(usdPrice === null) return 'N/A';
+                    const match = availableFiats.find(x => (x.currency && x.currency.toUpperCase() === selectedFiat.toUpperCase()) || (x.entity_id && x.entity_id.toUpperCase().indexOf(selectedFiat.toUpperCase())!==-1));
+                    if(!match || !match.state) return 'N/A';
+                    const fx = Number(match.state);
+                    const p = Number(priceStr);
+                    if(!isFinite(fx) || isNaN(p) || !isFinite(usdPrice)) return 'N/A';
+                    const v = p * Number(usdPrice) * fx;
+                    return isFinite(v) ? v.toFixed(2) : 'N/A';
+                }catch(e){return 'N/A';}
+            };
+
+            // Update bids table - use same columns as best orders
             const bidsTable = document.getElementById('bids-table');
             bidsTable.innerHTML = '';
-            data.bids.forEach(bid => {
+            (data.bids || []).forEach(bid => {
+                const price = extractDecimal(bid.price) || extractDecimal(bid.price_fraction) || '';
+                const volume = extractDecimal(bid.maxvolume) || extractDecimal(bid.max_volume) || extractDecimal(bid.rel_max_volume) || extractDecimal(bid.volume) || '';
+                const min_rel = extractDecimal(bid.rel_min_volume) || extractDecimal(bid.min_volume) || '';
+                const max_rel = extractDecimal(bid.rel_max_volume) || extractDecimal(bid.maxvolume) || '';
+                const min_base = extractDecimal(bid.base_min_volume) || '';
+                const max_base = extractDecimal(bid.base_max_volume) || extractDecimal(bid.base_max_volume) || '';
+                const priceFiat = computeFiatForPrice(price, bid.coin, { selectedFiat: data.selectedFiat, availableFiats: data.availableFiats, kdfTickers: data.kdfTickers });
                 const row = document.createElement('tr');
                 row.innerHTML = `
-                    <td class="price bid">${bid.price}</td>
-                    <td class="volume">${bid.volume}</td>
-                    <td class="volume">${bid.total}</td>
+                    <td class="left">${bid.coin || ''}</td>
+                    <td class="price bid">${round6(price) || '--'}</td>
+                    <td class="price bid">${round6(priceFiat)}</td>
+                    <td class="volume">${round6(min_rel) || '--'}</td>
+                    <td class="volume">${round6(max_rel) || '--'}</td>
+                    <td class="volume">${round6(min_base) || '--'}</td>
+                    <td class="volume">${round6(max_base) || '--'}</td>
                 `;
                 bidsTable.appendChild(row);
             });
-            
+
             // Update asks table
             const asksTable = document.getElementById('asks-table');
             asksTable.innerHTML = '';
-            data.asks.forEach(ask => {
+            (data.asks || []).forEach(ask => {
+                const price = extractDecimal(ask.price) || extractDecimal(ask.price_fraction) || '';
+                const volume = extractDecimal(ask.maxvolume) || extractDecimal(ask.max_volume) || extractDecimal(ask.rel_max_volume) || extractDecimal(ask.volume) || '';
+                const min_rel = extractDecimal(ask.rel_min_volume) || extractDecimal(ask.min_volume) || '';
+                const max_rel = extractDecimal(ask.rel_max_volume) || extractDecimal(ask.maxvolume) || '';
+                const min_base = extractDecimal(ask.base_min_volume) || '';
+                const max_base = extractDecimal(ask.base_max_volume) || extractDecimal(ask.base_max_volume) || '';
+                const priceFiat = computeFiatForPrice(price, ask.coin, { selectedFiat: data.selectedFiat, availableFiats: data.availableFiats, kdfTickers: data.kdfTickers });
                 const row = document.createElement('tr');
                 row.innerHTML = `
-                    <td class="price ask">${ask.price}</td>
-                    <td class="volume">${ask.volume}</td>
-                    <td class="volume">${ask.total}</td>
+                    <td class="left">${ask.coin || ''}</td>
+                    <td class="price ask">${round6(price) || '--'}</td>
+                    <td class="price ask">${round6(priceFiat)}</td>
+                    <td class="volume">${round6(min_rel) || '--'}</td>
+                    <td class="volume">${round6(max_rel) || '--'}</td>
+                    <td class="volume">${round6(min_base) || '--'}</td>
+                    <td class="volume">${round6(max_base) || '--'}</td>
                 `;
                 asksTable.appendChild(row);
             });

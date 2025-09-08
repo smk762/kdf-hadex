@@ -2,52 +2,37 @@
 # shellcheck shell=bash
 set -euo pipefail
 
-# Clean up any leftover files from previous runs
-rm -f /tmp/kdf-setup-running /tmp/kdf-setup-complete
-
-# Prevent multiple simultaneous executions
-if [[ -f /tmp/kdf-setup-running ]]; then
-    echo "[kdf] Setup already running, waiting for completion..."
-    # Wait up to 30 seconds for completion
-    for i in {1..30}; do
-        if [[ ! -f /tmp/kdf-setup-running ]]; then
-            break
-        fi
-        sleep 1
-    done
-    
-    if [[ -f /tmp/kdf-setup-complete ]]; then
-        echo "[kdf] Setup completed by another process"
-        exit 0
-    elif [[ -f /tmp/kdf-setup-running ]]; then
-        echo "[kdf] Previous setup appears stuck, cleaning up and continuing..."
-        rm -f /tmp/kdf-setup-running
-    else
-        echo "[kdf] Setup failed in another process, continuing with fresh setup..."
-    fi
-fi
-
-# Clean up any leftover guard file from previous runs
-rm -f /tmp/kdf-setup-running
 
 echo "[kdf] Setup script starting..."
 echo "[kdf] Current time: $(date)"
-touch /tmp/kdf-setup-running
-echo "[kdf] Setup running marker created at /tmp/kdf-setup-running"
 
-# Load bashio for config access (with protection against multiple loads)
-echo "[kdf] Loading bashio..."
-if ! declare -f bashio::config >/dev/null 2>&1; then
-    source /usr/lib/bashio/bashio "$0"
-else
-    echo "[kdf] bashio already loaded"
-fi
 
 # Create the required directories
 # /data maps to <ADDON_PATH> on host
 # ~/.kdf in container should map to <ADDON_PATH>/.kdf/ on host
 mkdir -p /data/logs
 mkdir -p /root/.kdf
+
+# Create default panel cache config if missing to prevent excessive external API calls
+PANEL_CACHE_CFG="/data/panel_cache_config.json"
+if [[ ! -f "${PANEL_CACHE_CFG}" ]]; then
+    echo "[kdf] Creating default panel cache config at ${PANEL_CACHE_CFG}"
+    cat > "${PANEL_CACHE_CFG}" <<'JSON'
+{
+  "tickers": 3600,
+  "enabled_coins": 60,
+  "peers": 60,
+  "best_orders": 30,
+  "orderbook": 10,
+  "active_swaps": 30,
+  "my_orders": 60,
+  "recent_swaps": 60,
+  "coingecko_prices": 300
+}
+JSON
+else
+    echo "[kdf] panel cache config already present at ${PANEL_CACHE_CFG}"
+fi
 
 # Check if web files exist (copied during build)
 echo "[kdf] Checking web files for panel server..."
@@ -58,193 +43,10 @@ else
     echo "[kdf] Warning: Web files not found in /root/www/"
 fi
 
-# Get configuration values from /data/options.json (authoritative)
-echo "[kdf] Reading configuration from /data/options.json..."
-OPTIONS_FILE="/data/options.json"
-if [[ -f "$OPTIONS_FILE" ]]; then
-    # Use jq if available for robust parsing
-    if command -v jq >/dev/null 2>&1; then
-        RPC_PASS=$(jq -r '.rpc_password // ""' "$OPTIONS_FILE" 2>/dev/null || echo "")
-        RPC_PORT=$(jq -r '.rpc_port // 7783' "$OPTIONS_FILE" 2>/dev/null || echo 7783)
-        NETID=$(jq -r '.netid // 8762' "$OPTIONS_FILE" 2>/dev/null || echo 8762)
-        COINS_URL=$(jq -r '.coins_url // ""' "$OPTIONS_FILE" 2>/dev/null || echo "")
-        LOG_LEVEL=$(jq -r '.log_level // "info"' "$OPTIONS_FILE" 2>/dev/null || echo "info")
-        WALLET_NAME=$(jq -r '.wallet_name // "HAOS_KDF_Wallet"' "$OPTIONS_FILE" 2>/dev/null || echo "HAOS_KDF_Wallet")
-        WALLET_PASS=$(jq -r '.wallet_password // ""' "$OPTIONS_FILE" 2>/dev/null || echo "")
-        BIP39_MNEMONIC=$(jq -r '.bip39_mnemonic // ""' "$OPTIONS_FILE" 2>/dev/null || echo "")
-        HAOS_IP=$(jq -r '.haos_ip // "0.0.0.0"' "$OPTIONS_FILE" 2>/dev/null || echo "0.0.0.0")
-
-        # Exchange rate configuration
-        SELECTED_FIAT_CURRENCY=$(jq -r '.selected_fiat_currency // "AUD"' "$OPTIONS_FILE" 2>/dev/null || echo "AUD")
-    else
-        echo "[kdf] ERROR: jq not available; cannot reliably parse /data/options.json"
-        echo "[kdf] Please ensure jq is installed in the addon image"
-        exit 1
-    fi
-else
-    echo "[kdf] ERROR: /data/options.json not found; addon configuration is missing"
-    exit 1
-fi
-
-echo "[kdf] Configuration loaded successfully from $OPTIONS_FILE"
-
-# Debug: Show what we got (without printing secrets)
-echo "[kdf] Debug: Configuration values received:"
-echo "[kdf] RPC_PASS length: ${#RPC_PASS}"
-echo "[kdf] WALLET_PASS length: ${#WALLET_PASS}"
-echo "[kdf] BIP39_MNEMONIC length: ${#BIP39_MNEMONIC}"
-echo "[kdf] Selected fiat currency: ${SELECTED_FIAT_CURRENCY}"
-
-# Validate required configuration
-echo "[kdf] Validating configuration..."
-
-if [[ -z "${RPC_PASS}" || "${RPC_PASS}" == "CHANGE_ME" ]]; then
-    echo "[kdf] ERROR: rpc_password is required and must not be 'CHANGE_ME'"
-    echo "[kdf] Please set a secure RPC password in the addon configuration"
-    exit 1
-fi
-
-if [[ -z "${WALLET_PASS}" || "${WALLET_PASS}" == "CHANGE_ME" ]]; then
-    echo "[kdf] ERROR: wallet_password is required and must not be 'CHANGE_ME'"
-    echo "[kdf] Please set a secure wallet password in the addon configuration"
-    exit 1
-fi
-
-# Require BIP39 mnemonic/passphrase to be set for deterministic wallet setup
-# Best practice: require explicit mnemonic to avoid accidental wallet creation with weak defaults
-if [[ -z "${BIP39_MNEMONIC}" ]]; then
-    echo "[kdf] ERROR: bip39_mnemonic is required and must not be empty"
-    echo "[kdf] Please set your BIP39 mnemonic in the addon configuration before starting the addon"
-    echo "[kdf] If you do not have a mnemonic and want KDF to create a wallet, consider the security implications; this addon requires an explicit mnemonic to start."
-    exit 1
-fi
-
-echo "[kdf] Configuration validation passed"
-
-# Debug: Show configuration values (without exposing secrets)
-echo "[kdf] Configuration loaded: RPC_PORT=${RPC_PORT}, NETID=${NETID}"
-echo "[kdf] Wallet name: ${WALLET_NAME}"
-echo "[kdf] BIP39 mnemonic length: ${#BIP39_MNEMONIC} characters"
-echo "[kdf] RPC password length: ${#RPC_PASS} characters"
-echo "[kdf] Wallet password length: ${#WALLET_PASS} characters"
-
-# Handle seednodes array
-SEEDNODES_RAW="$(bashio::config 'seednodes' 2>/dev/null || echo "${SEEDNODES:-[]}")"
-if [[ "${SEEDNODES_RAW}" == "[]" || -z "${SEEDNODES_RAW}" ]]; then
-    SEEDNODES="[]"
-else
-    # Convert bash array to JSON array if it's not already JSON
-    if echo "${SEEDNODES_RAW}" | jq . >/dev/null 2>&1; then
-        SEEDNODES="${SEEDNODES_RAW}"
-    else
-        SEEDNODES="[]"
-    fi
-fi
-
-# Download coins file to ~/.kdf directory
-COINS_PATH="/root/.kdf/coins"
-if [[ -n "${COINS_URL}" ]]; then
-  echo "[kdf] Fetching coins from ${COINS_URL}"
-  if ! curl -fsSL "${COINS_URL}" -o "${COINS_PATH}"; then
-    echo "[kdf] WARNING: Failed to fetch coins from URL; will look for /share/kdf/coins or proceed without"
-  fi
-fi
-
-if [[ ! -s "${COINS_PATH}" && -s "/share/kdf/coins" ]]; then
-  echo "[kdf] Using /share/kdf/coins"
-  cp /share/kdf/coins "${COINS_PATH}"
-fi
+# Determine no_login flag from user options; default true
+NO_LOGIN=$(jq -r '.no_login // true' "$OPTIONS_FILE" 2>/dev/null || echo "true")
 
 
-# Create MM2.json in ~/.kdf directory
-MM2_JSON="/root/.kdf/MM2.json"
-echo "[kdf] Creating MM2.json configuration"
-
-# Handle conditional values for netid, rpcport, and seednodes
-EFFECTIVE_NETID="${NETID}"
-EFFECTIVE_RPCPORT="${RPC_PORT}"
-EFFECTIVE_SEEDNODES="${SEEDNODES}"
-
-if [[ "${SEEDNODES}" != "[]" && "${SEEDNODES}" != "" ]]; then
-    # If seednodes are provided, extract netid and rpcport from first seednode if they contain this info
-    # For now, use provided values as-is
-    EFFECTIVE_SEEDNODES="${SEEDNODES}"
-else
-    # Use defaults if no seednodes
-    EFFECTIVE_NETID="${NETID:-8762}"
-    EFFECTIVE_RPCPORT="${RPC_PORT:-7783}"
-    EFFECTIVE_SEEDNODES='["seed01.kmdefi.net", "seed02.kmdefi.net", "balerion.dragon-seed.com", "drogon.dragon-seed.com", "falkor.dragon-seed.com"]'
-fi
-
-# Include BIP39 mnemonic in configuration (conditional)
-if [[ -n "${BIP39_MNEMONIC}" ]]; then
-    echo "[kdf] Including BIP39 mnemonic in configuration"
-    PASSPHRASE_LINE='    "passphrase": "'"${BIP39_MNEMONIC}"'",'
-else
-    echo "[kdf] No BIP39 mnemonic provided - KDF will create new wallet"
-    PASSPHRASE_LINE=""
-fi
-
-cat > "${MM2_JSON}" <<JSON
-{
-    "gui": "HADEX",
-    "enable_hd": true,
-    "use_watchers": true,
-    "dbdir": "/data/.kdf/",
-    "netid": ${EFFECTIVE_NETID},
-    "rpcport": ${EFFECTIVE_RPCPORT},
-    "seednodes": ${EFFECTIVE_SEEDNODES},
-    "wallet_name": "${WALLET_NAME}",
-    "wallet_password": "${WALLET_PASS}",
-    "i_am_seed": false,
-    "is_bootstrap_node": false,
-    "disable_p2p": false,
-    "use_trading_proto_v2": false,
-${PASSPHRASE_LINE}
-    "allow_weak_password": false,
-    "rpc_local_only": false,
-    "rpcip": "${HAOS_IP}",
-    "rpc_password": "${RPC_PASS}"
-}
-JSON
-
-echo "[kdf] MM2.json created at ${MM2_JSON}"
-echo "[kdf] Coins file located at ${COINS_PATH}"
-
-# Create setup completion marker
-echo "[kdf] Setup completed successfully"
-echo "[kdf] Creating setup completion marker..."
-
-# Log KDF version for reference and create version file for add-on info
-echo "[kdf] KDF Version Information:"
-if [ -f /usr/local/bin/kdf ]; then
-    KDF_VERSION=$(/usr/local/bin/kdf --version 2>/dev/null | head -1)
-    if [ -n "$KDF_VERSION" ]; then
-        echo "[kdf] KDF Version: $KDF_VERSION"
-        # Create a version file that can be used by the add-on info
-        echo "$KDF_VERSION" > /data/kdf_version.txt
-    else
-        echo "[kdf] KDF binary found but version unavailable"
-        echo "Version unavailable" > /data/kdf_version.txt
-    fi
-else
-    echo "[kdf] KDF binary not found"
-    echo "Binary not found" > /data/kdf_version.txt
-fi
-
-touch /tmp/kdf-setup-complete
-echo "[kdf] Setup completion marker created at /tmp/kdf-setup-complete"
-
-# Clean up running marker
-rm -f /tmp/kdf-setup-running
-echo "[kdf] Setup running marker removed"
-
-export KDF_RPC_PORT="${RPC_PORT}"
-export KDF_LOG_LEVEL="${LOG_LEVEL}"
-# Do not export RPC password; services should read /data/options.json for `rpc_password` when needed.
-
-# `SELECTED_FIAT_CURRENCY` is persisted in /data/options.json and read by services when needed.
-# Do not export it as an environment variable to avoid leaking configuration into service environments.
 
 # Ensure kdf_method_versions.json exists in /data and is refreshed when the image example changes
 EXAMPLE_METHODS_FILE="/root/www/kdf_method_versions.example.json"

@@ -352,14 +352,41 @@ class KDFOrderbookCard extends HTMLElement {
 
     async loadOrderbook() {
         try {
-            // Try to fetch real data first, fall back to mock data if KDF is not available
             try {
-                const realData = await this.fetchRealOrderbook(this._currentCoin, this._config.base_currency);
-                this.displayOrderbook(realData);
+                // Use batching to request both orderbook and tickers in one call when possible
+                try {
+                    const batch = [
+                        { method: 'orderbook', params: { base: this._currentCoin, rel: this._config.base_currency } },
+                    ];
+                    const resp = await fetch((this._config.panel_api_base || '') + '/api/kdf_request', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(batch)
+                    });
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    const arr = await resp.json();
+                    const obRes = Array.isArray(arr) ? arr[0] : arr;
+                    const obData = obRes && obRes.result ? obRes.result : obRes;
+                    try {
+                        this.displayOrderbook(this.transformKDFOrderbook(obData));
+                    } catch (err) {
+                        console.error('Error transforming orderbook data:', err, obData);
+                        // Display KDF error if present
+                        if (obData && obData.error) {
+                            const em = typeof obData.error === 'string' ? obData.error : JSON.stringify(obData.error);
+                            this.displayError(em);
+                        } else {
+                            this.displayError('Failed to display orderbook');
+                        }
+                    }
+                } catch (err) {
+                    // Fallback to previous single RPC
+                    const realData = await this.fetchRealOrderbook(this._currentCoin, this._config.base_currency);
+                    this.displayOrderbook(realData);
+                }
             } catch (apiError) {
-                console.warn(`KDF API not available for ${this._currentCoin}, using mock data:`, apiError.message);
-                const mockData = this.generateMockOrderbook();
-                this.displayOrderbook(mockData);
+                // If orderbook fetch fails, show error returned from KDF
+                console.error('Orderbook fetch failed:', apiError);
+                const msg = apiError && apiError.message ? apiError.message : String(apiError);
+                this.displayError(msg);
             }
             
             this.updateLastUpdated();
@@ -370,58 +397,6 @@ class KDFOrderbookCard extends HTMLElement {
         }
     }
 
-    generateMockOrderbook() {
-        const basePrice = this.getBasePrice(this._currentCoin);
-        const spread = basePrice * 0.001; // 0.1% spread
-        
-        const bids = [];
-        const asks = [];
-        
-        // Generate bids (buy orders)
-        for (let i = 0; i < this._config.max_orders; i++) {
-            const price = basePrice - (spread / 2) - (i * spread * 0.1);
-            const volume = Math.random() * 100 + 10;
-            bids.push({
-                price: price.toFixed(8),
-                volume: volume.toFixed(4),
-                total: (price * volume).toFixed(2)
-            });
-        }
-        
-        // Generate asks (sell orders)
-        for (let i = 0; i < this._config.max_orders; i++) {
-            const price = basePrice + (spread / 2) + (i * spread * 0.1);
-            const volume = Math.random() * 100 + 10;
-            asks.push({
-                price: price.toFixed(8),
-                volume: volume.toFixed(4),
-                total: (price * volume).toFixed(2)
-            });
-        }
-        
-        return {
-            bids: bids.sort((a, b) => parseFloat(b.price) - parseFloat(a.price)),
-            asks: asks.sort((a, b) => parseFloat(a.price) - parseFloat(b.price)),
-            spread: spread.toFixed(8)
-        };
-    }
-
-    getBasePrice(coin) {
-        const prices = {
-            'USD': 1.533551,
-            'LTC': 170.38,
-            'BNB': 1303.6104,
-            'BTC': 170690.35,
-            'ETH': 6669.6433,
-            'AVAX': 36.7592,
-            'ATOM': 6.7921,
-            'MATIC': 0.4421,
-            'KMD': 0.0484,
-            'DOGE': 0.326,
-            'DGB': 0.0127
-        };
-        return prices[coin] || 100;
-    }
 
     displayOrderbook(data) {
         this._orderbookData = data;
@@ -491,27 +466,22 @@ class KDFOrderbookCard extends HTMLElement {
     // Real KDF API integration
     async fetchRealOrderbook(base, rel) {
         try {
-            const response = await fetch((this._config.panel_api_base || '') + '/api/kdf_request', {
+            // Use batch API if available (single-item batch)
+            const resp = await fetch((this._config.panel_api_base || '') + '/api/kdf_request', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ method: 'orderbook', params: { base, rel } })
+                body: JSON.stringify([{ method: 'orderbook', params: { base, rel } }])
             });
 
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+            if (!resp.ok) {
+                throw new Error(`HTTP error! status: ${resp.status}`);
             }
 
-            const data = await response.json();
-            
-            if (data.error) {
-                throw new Error(data.error);
-            }
-
-            // store raw
+            const arr = await resp.json();
+            const data = Array.isArray(arr) ? arr[0] : arr;
+            if (data.error) throw new Error(data.error || 'Orderbook error');
             this._orderbookRaw = data.result || data;
-
-            // Transform KDF orderbook data to our format
-            return this.transformKDFOrderbook(data.result);
+            return this.transformKDFOrderbook(data.result || data);
         } catch (error) {
             console.error('KDF API Error:', error);
             throw error;
@@ -519,23 +489,46 @@ class KDFOrderbookCard extends HTMLElement {
     }
 
     transformKDFOrderbook(kdfData) {
-        // Transform KDF orderbook format to our display format
-        const bids = kdfData.bids ? kdfData.bids.map(bid => ({
-            price: parseFloat(bid.price).toFixed(8),
-            volume: parseFloat(bid.maxvolume).toFixed(4),
-            total: (parseFloat(bid.price) * parseFloat(bid.maxvolume)).toFixed(2)
-        })) : [];
+        // Helper: format number to 12 significant figures, prefer non-exponential output when possible
+        const formatSig = (v) => {
+            const n = Number(v);
+            if (!isFinite(n)) return '0';
+            let s = n.toPrecision(12);
+            // try to avoid exponential notation for most readable values
+            if (!s.includes('e')) {
+                // strip trailing zeros
+                s = s.replace(/\.?(0+)$/,'');
+            }
+            return s;
+        };
 
-        const asks = kdfData.asks ? kdfData.asks.map(ask => ({
-            price: parseFloat(ask.price).toFixed(8),
-            volume: parseFloat(ask.maxvolume).toFixed(4),
-            total: (parseFloat(ask.price) * parseFloat(ask.maxvolume)).toFixed(2)
-        })) : [];
+        // Transform KDF orderbook format to our display format using 12 significant figures
+        const bids = kdfData.bids ? kdfData.bids.map(bid => {
+            const price = Number(bid.price);
+            const volume = Number(bid.maxvolume);
+            const total = price * volume;
+            return {
+                price: formatSig(price),
+                volume: formatSig(volume),
+                total: formatSig(total)
+            };
+        }) : [];
+
+        const asks = kdfData.asks ? kdfData.asks.map(ask => {
+            const price = Number(ask.price);
+            const volume = Number(ask.maxvolume);
+            const total = price * volume;
+            return {
+                price: formatSig(price),
+                volume: formatSig(volume),
+                total: formatSig(total)
+            };
+        }) : [];
 
         // Calculate spread
-        const bestBid = bids.length > 0 ? parseFloat(bids[0].price) : 0;
-        const bestAsk = asks.length > 0 ? parseFloat(asks[0].price) : 0;
-        const spread = bestBid > 0 && bestAsk > 0 ? (bestAsk - bestBid).toFixed(8) : '0.00000000';
+        const bestBid = bids.length > 0 ? Number(bids[0].price) : 0;
+        const bestAsk = asks.length > 0 ? Number(asks[0].price) : 0;
+        const spread = bestBid > 0 && bestAsk > 0 ? formatSig(bestAsk - bestBid) : formatSig(0);
 
         return {
             bids: bids.sort((a, b) => parseFloat(b.price) - parseFloat(a.price)),

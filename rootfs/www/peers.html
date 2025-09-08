@@ -12,7 +12,7 @@
   </style>
 </head>
 <body>
-  <h1>KDF Peers Demo</h1>
+  <h1>KDF Connected Peers</h1>
   <div id="peers">Loading peers...</div>
 
   <script>
@@ -20,7 +20,9 @@
       try {
         const res = await fetch('./api/peers');
         const j = await res.json();
-        const peers = j.peers || {};
+        // The API may return { peers: { pid: [addrs] } } or { peers: { result: { pid: [addrs] } } }
+        let peers = j.peers || {};
+        if (peers.result && typeof peers.result === 'object') peers = peers.result;
         const keys = Object.keys(peers);
         if (!keys.length) { document.getElementById('peers').innerText = 'No peers connected'; return; }
         let html = '<table><thead><tr><th>Peer ID</th><th>Domain(s)</th></tr></thead><tbody>';

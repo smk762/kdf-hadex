@@ -247,14 +247,14 @@ class KDFBestOrdersCard extends HTMLElement {
 
     async loadBestOrders() {
         try {
-            // Try to fetch real data first, fall back to mock data if KDF is not available
             try {
                 const realData = await this.fetchBestOrders();
                 this.displayBestOrders(realData);
             } catch (apiError) {
-                console.warn('KDF API not available, using mock data:', apiError.message);
-                const mockData = this.generateMockBestOrders();
-                this.displayBestOrders(mockData);
+                console.error('KDF API error (best_orders):', apiError);
+                // Display the error returned from KDF or the caught exception
+                const msg = apiError && apiError.message ? apiError.message : String(apiError);
+                this.displayError(msg);
             }
             
             this.updateLastUpdated();
@@ -286,7 +286,10 @@ class KDFBestOrdersCard extends HTMLElement {
             }
 
             const data = await response.json();
-            if (data.error) throw new Error(data.error);
+            if (data.error) {
+                console.error('KDF error (best_orders):', data.error);
+                throw new Error(data.error);
+            }
             const result = data.result || data;
             // store raw
             this._bestOrdersRaw = result;
@@ -298,6 +301,15 @@ class KDFBestOrdersCard extends HTMLElement {
     }
 
     transformBestOrdersData(kdfData) {
+        // Helper: format number to 12 significant figures
+        const formatSig = (v) => {
+            const n = Number(v);
+            if (!isFinite(n)) return '0';
+            let s = n.toPrecision(12);
+            if (!s.includes('e')) s = s.replace(/\.?(0+)$/,'');
+            return s;
+        };
+
         // Transform KDF best_orders data to our display format
         const buyOrders = [];
         const sellOrders = [];
@@ -313,21 +325,25 @@ class KDFBestOrdersCard extends HTMLElement {
             Object.entries(ordersMap).forEach(([pair, orders]) => {
                 if (orders.bids) {
                     orders.bids.forEach(bid => {
+                        const price = Number(bid.price);
+                        const vol = Number(bid.maxvolume);
                         buyOrders.push({
                             pair: pair,
-                            price: parseFloat(bid.price).toFixed(8),
-                            volume: parseFloat(bid.maxvolume).toFixed(4),
-                            total: (parseFloat(bid.price) * parseFloat(bid.maxvolume)).toFixed(2)
+                            price: formatSig(price),
+                            volume: formatSig(vol),
+                            total: formatSig(price * vol)
                         });
                     });
                 }
                 if (orders.asks) {
                     orders.asks.forEach(ask => {
+                        const price = Number(ask.price);
+                        const vol = Number(ask.maxvolume);
                         sellOrders.push({
                             pair: pair,
-                            price: parseFloat(ask.price).toFixed(8),
-                            volume: parseFloat(ask.maxvolume).toFixed(4),
-                            total: (parseFloat(ask.price) * parseFloat(ask.maxvolume)).toFixed(2)
+                            price: formatSig(price),
+                            volume: formatSig(vol),
+                            total: formatSig(price * vol)
                         });
                     });
                 }
@@ -337,40 +353,6 @@ class KDFBestOrdersCard extends HTMLElement {
         return {
             buyOrders: buyOrders.sort((a, b) => parseFloat(b.price) - parseFloat(a.price)).slice(0, this._config.max_orders),
             sellOrders: sellOrders.sort((a, b) => parseFloat(a.price) - parseFloat(b.price)).slice(0, this._config.max_orders)
-        };
-    }
-
-    generateMockBestOrders() {
-        const mockBuyOrders = [];
-        const mockSellOrders = [];
-
-        // Generate mock buy orders
-        for (let i = 0; i < this._config.max_orders; i++) {
-            const price = 50000 - (i * 1000);
-            const volume = Math.random() * 10 + 1;
-            mockBuyOrders.push({
-                pair: 'BTC/AUD',
-                price: price.toFixed(2),
-                volume: volume.toFixed(4),
-                total: (price * volume).toFixed(2)
-            });
-        }
-
-        // Generate mock sell orders
-        for (let i = 0; i < this._config.max_orders; i++) {
-            const price = 51000 + (i * 1000);
-            const volume = Math.random() * 10 + 1;
-            mockSellOrders.push({
-                pair: 'BTC/AUD',
-                price: price.toFixed(2),
-                volume: volume.toFixed(4),
-                total: (price * volume).toFixed(2)
-            });
-        }
-
-        return {
-            buyOrders: mockBuyOrders,
-            sellOrders: mockSellOrders
         };
     }
 

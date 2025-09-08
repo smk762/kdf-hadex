@@ -65,7 +65,7 @@ RUN set -ex && \
       [ -d "$d" ] && chmod -R +x "$d" || true; \
     done && \
     # make scripts executable (these should exist in image) \
-    chmod +x /usr/local/bin/kdf-version /usr/local/bin/kdf-ha-integration.py /usr/local/bin/panel-server.py /usr/local/bin/configure-panel.py /usr/local/bin/test-panel-server.py || true
+    chmod +x /usr/local/bin/kdf-ha-integration.py /usr/local/bin/panel-server.py /usr/local/bin/configure-panel.py /usr/local/bin/test-panel-server.py || true
 
 
 # Expose KDF RPC port and ingress port

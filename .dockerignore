@@ -1,7 +1,6 @@
 # Exclude documentation and development files
 README.md
 CHANGELOG.md
-check-kdf-version.sh
 
 # Exclude git files
 .git

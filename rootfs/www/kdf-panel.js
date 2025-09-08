@@ -117,6 +117,10 @@ class KDFPanel extends LitElement {
               <span class="status-value" id="kdf-version">Loading...</span>
             </div>
             <div class="status-item">
+              <span class="status-label">Total Value:</span>
+              <span class="status-value" id="total-fiat">Loading...</span>
+            </div>
+            <div class="status-item">
               <span class="status-label">Peer Count:</span>
               <span class="status-value" id="peer-count">Loading...</span>
             </div>
@@ -157,6 +161,31 @@ class KDFPanel extends LitElement {
     this.refreshData();
     // Auto-refresh every 30 seconds
     setInterval(() => this.refreshData(), 30000);
+
+    // Fetch coins_config to expose to other panels
+    (async () => {
+      try {
+        const r = await fetch('./api/coins_config');
+        if (r.ok) {
+          const j = await r.json();
+          window.COINS_CONFIG = j.coins_config || {};
+          window.SUPPORTED_COINS = j.supported_coins || Object.keys(window.COINS_CONFIG || {});
+        } else {
+          window.COINS_CONFIG = {};
+          window.SUPPORTED_COINS = [];
+        }
+      } catch (e) {
+        window.COINS_CONFIG = {};
+        window.SUPPORTED_COINS = [];
+      }
+    })();
+
+    // Listen for options changes and refresh when saved from settings
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'kdf.options.updated') {
+        this.refreshData();
+      }
+    });
   }
 
   async refreshData() {
@@ -164,7 +193,7 @@ class KDFPanel extends LitElement {
     
     try {
       // Fetch status data from the panel server API
-      const statusResponse = await fetch('./api/version');
+      const statusResponse = await fetch('./api/status');
       if (statusResponse.ok) {
         const statusData = await statusResponse.json();
         
@@ -197,43 +226,92 @@ class KDFPanel extends LitElement {
       }
 
       
-      // Fetch trading data from the panel server API
-      // Fetch trading data individually via kdf_request
+      // Fetch activation and price data to compute total fiat value
       try {
-        const activeResp = await fetch('./api/kdf_request', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method: 'active_swaps' }) });
-        if (activeResp.ok) {
-          const activeData = await activeResp.json();
-          const activeSwapsElement = this.shadowRoot.getElementById('active-swaps');
-          if (activeSwapsElement) {
-            const count = Array.isArray(activeData.result && activeData.result.uuids ? activeData.result.uuids : activeData.result) ? (activeData.result.uuids ? activeData.result.uuids.length : (Array.isArray(activeData.result) ? activeData.result.length : 0)) : 0;
-            activeSwapsElement.textContent = count;
+        const [actResp, priceResp] = await Promise.all([
+          fetch('./api/activation_status'),
+          fetch('./api/coingecko_prices')
+        ]);
+        let totalValue = 0;
+        let fiat = '';
+        if (actResp.ok && priceResp.ok) {
+          const actJson = await actResp.json();
+          const priceJson = await priceResp.json();
+          const act = actJson.activation || {};
+          const prices = (priceJson.prices) || {};
+          fiat = priceJson.fiat || '';
+
+          Object.keys(act).forEach(t => {
+            try {
+              const total = act[t].total_balance || {};
+              Object.keys(total).forEach(cur => {
+                const amt = parseFloat(total[cur]);
+                if (!isNaN(amt) && amt !== 0) {
+                  const p = prices[cur] && prices[cur].price ? parseFloat(prices[cur].price) : null;
+                  if (p !== null && !isNaN(p)) {
+                    totalValue += amt * p;
+                  }
+                }
+              });
+            } catch (e) {
+              // skip
+            }
+          });
+        }
+        const totalElem = this.shadowRoot.getElementById('total-fiat');
+        if (totalElem) {
+          if (isFinite(totalValue) && totalValue !== 0) {
+            const displayFiat = fiat ? fiat.toUpperCase() : '';
+            totalElem.textContent = `${displayFiat} ${totalValue.toFixed(2)}`;
+          } else {
+            totalElem.textContent = 'N/A';
           }
         }
+      } catch (e) {
+        const totalElem = this.shadowRoot.getElementById('total-fiat');
+        if (totalElem) totalElem.textContent = 'N/A';
+      }
 
-        const myOrdersResp = await fetch('./api/kdf_request', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method: 'my_orders' }) });
-        if (myOrdersResp.ok) {
-          const myData = await myOrdersResp.json();
+      // Fetch trading data using a single batch to reduce round-trips
+      try {
+        const batch = [
+          { method: 'active_swaps' },
+          { method: 'my_orders' },
+          { method: 'my_recent_swaps' }
+        ];
+        const batchResp = await fetch('./api/kdf_request', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(batch) });
+        if (batchResp.ok) {
+          const arr = await batchResp.json();
+          // arr should be an array with results in order
+          const activeData = Array.isArray(arr) ? arr[0] : arr;
+          const myData = Array.isArray(arr) ? arr[1] : arr;
+          const recentData = Array.isArray(arr) ? arr[2] : arr;
+
+          const activeSwapsElement = this.shadowRoot.getElementById('active-swaps');
+          if (activeSwapsElement) {
+            const aRes = activeData && activeData.result ? activeData.result : activeData;
+            const count = Array.isArray(aRes && aRes.uuids ? aRes.uuids : aRes) ? (aRes.uuids ? aRes.uuids.length : (Array.isArray(aRes) ? aRes.length : 0)) : 0;
+            activeSwapsElement.textContent = count;
+          }
+
           const myOrdersElement = this.shadowRoot.getElementById('my-orders');
           if (myOrdersElement) {
-            // my_orders may be dict with maker_orders/taker_orders
+            const mRes = myData && myData.result ? myData.result : myData;
             let count = 0;
-            if (myData.result && typeof myData.result === 'object') {
-              const maker = myData.result.maker_orders || {};
-              const taker = myData.result.taker_orders || {};
+            if (mRes && typeof mRes === 'object') {
+              const maker = mRes.maker_orders || {};
+              const taker = mRes.taker_orders || {};
               const makerCount = Array.isArray(maker) ? maker.length : Object.values(maker).reduce((s, v) => s + (Array.isArray(v) ? v.length : 0), 0);
               const takerCount = Array.isArray(taker) ? taker.length : Object.values(taker).reduce((s, v) => s + (Array.isArray(v) ? v.length : 0), 0);
               count = makerCount + takerCount;
             }
             myOrdersElement.textContent = count;
           }
-        }
 
-        const recentResp = await fetch('./api/kdf_request', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method: 'my_recent_swaps' }) });
-        if (recentResp.ok) {
-          const recentData = await recentResp.json();
           const recentSwapsElement = this.shadowRoot.getElementById('recent-swaps');
           if (recentSwapsElement) {
-            const swaps = (recentData.result && recentData.result.swaps) ? recentData.result.swaps : (Array.isArray(recentData.result) ? recentData.result : []);
+            const rRes = recentData && recentData.result ? recentData.result : recentData;
+            const swaps = (rRes && rRes.swaps) ? rRes.swaps : (Array.isArray(rRes) ? rRes : []);
             recentSwapsElement.textContent = Array.isArray(swaps) ? swaps.length : 0;
           }
         }

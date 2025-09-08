@@ -4,6 +4,16 @@ Runs the Komodo DeFi Framework (kdf) inside Home Assistant as an add-on.
 
 ## Configuration
 
+<div style="background:#fff2f2;border-left:6px solid #d93025;padding:12px;margin-bottom:12px;">
+<strong style="color:#b00000;font-size:1.05em">⚠️ Required configuration (must be set before starting the add-on)</strong>
+<ul style="margin-top:8px;color:#660000">
+  <li><strong>rpc_password</strong> – RPC authentication password (cannot be empty or the default <code>CHANGE_ME</code>)</li>
+  <li><strong>wallet_password</strong> – wallet encryption password (cannot be empty or the default <code>CHANGE_ME</code>)</li>
+</ul>
+<p style="margin-top:8px;color:#660000">If you want to import an existing seed, enable <code>import_mnemonic</code> in the add-on configuration and set <code>bip39_mnemonic</code>. If <code>import_mnemonic</code> is <code>false</code> (the default), the add-on/KDF will generate a new mnemonic and encrypt it with <code>wallet_password</code> on first start.</p>
+Please ensure these values are set in the add-on configuration before clicking <em>Start</em>. The add-on will refuse to start if any required fields are missing or left at insecure defaults.
+</div>
+
 ### Options
 - `rpc_password` – RPC authentication password (8-32 chars, 1+ each: numeric, uppercase, lowercase, special char)
 - `rpc_port` – default 7783
@@ -13,7 +23,7 @@ Runs the Komodo DeFi Framework (kdf) inside Home Assistant as an add-on.
 - `wallet_name` - name of the wallet
 - `wallet_password` – wallet encryption password (8-32 chars, 1+ each: numeric, uppercase, lowercase, special char)
 - `bip39_mnemonic` – wallet seed phrase (12 or 24 words)
-- `haos_ip` – IP address for RPC binding (default: 0.0.0.0)
+- `kdf_rpcip` – IP address for RPC binding (default: 0.0.0.0)
 - `enable_dashboard` – enable the Home Assistant integration (default: true)
 - `seednodes` – array of seed node addresses
 
@@ -26,36 +36,54 @@ Runs the Komodo DeFi Framework (kdf) inside Home Assistant as an add-on.
 - No 3+ consecutive identical characters
 - Cannot contain "password", "<", ">", "&", or "$"
 
+## Login & Mnemonic Flow (updated)
+
+The add-on now provides a guided mnemonic import/export and secure login flow. Key points:
+
+- **Fixed wallet name**: The wallet used by the add-on is `HAOS KDF Wallet` (read-only) to simplify onboarding and avoid multi-wallet management.
+- **Import mnemonic**: If you want to use an existing seed, enable `import_mnemonic` in the add-on configuration and set `bip39_mnemonic`. If `import_mnemonic` is false, KDF will generate a new mnemonic and encrypt it using `wallet_password`.
+- **Export mnemonic**:
+  - Use the panel UI (Mnemonic & Wallet) to export the mnemonic.
+  - Two formats supported: `encrypted` (recommended) and `plaintext`. Plaintext export requires entering the `wallet_password` and is rate-limited to once per 5 minutes to reduce accidental disclosure.
+- **Change wallet password**: The panel can call KDF to change the mnemonic encryption password. When successful, the add-on will automatically update `wallet_password` in the add-on options so MM2.json and the add-on options remain in sync.
+- **Delete wallet**: The panel supports deleting the static wallet. You must confirm with the wallet password. A "Backup wallet" button allows exporting the encrypted mnemonic before deletion. On successful deletion the addon will clear the imported mnemonic and set `import_mnemonic=false`.
+
+Security recommendations:
+
+- Always use the encrypted export (`encrypted`) for backups — keep it offline and protected.
+- Avoid using plaintext export except for one-time recovery; do not paste the mnemonic into untrusted applications.
+- Rotate passwords and store backups in secure storage.
+
+API references (Komodo docs):
+
+- `get_mnemonic`: https://dev.komodo-docs.pages.dev/en/docs/komodo-defi-framework/api/v20/utils/get_mnemonic/
+- `change_mnemonic_password`: https://dev.komodo-docs.pages.dev/en/docs/komodo-defi-framework/api/v20/utils/change_mnemonic_password/
+- `delete_wallet`: https://dev.komodo-docs.pages.dev/en/docs/komodo-defi-framework/api/v20/wallet/delete_wallet/
+
 ## Volumes
 - `/data` – persists `MM2.json`, DB, and logs
 - `/share/kdf/coins.json` – optional local coins file
 
 ## Checking KDF Version
 
-The KDF version is displayed in the add-on logs during startup. You can also check it manually:
+The KDF version is displayed in the add-on logs during startup and is also exposed via the panel server API. The panel server caches the version value on first successful retrieval and will return the same value until the panel process restarts.
 
-### From Home Assistant:
+### From Home Assistant / Add-on UI:
 1. Go to **Supervisor** → **Add-ons** → **KDF** → **Logs**
-2. Look for the line: `[kdf] KDF Version: 2.5.1-beta_b891ed6...`
+2. Look for a startup line that includes the KDF version (e.g. `[kdf] Komodo DeFi Framework 2.5.1-beta_...`).
 
-### From Command Line:
+### From the Panel API (recommended):
+Use the panel server endpoint which does not require exposing RPC credentials to cards:
 ```bash
-# Check version via RPC (when KDF is running)
-docker exec local_kdf /usr/local/bin/kdf-version
-
-# Check version via binary
-docker exec local_kdf /usr/local/bin/kdf --version
-
-# Check version file
-docker exec local_kdf cat /data/kdf_version.txt
+# Query the panel server for the cached KDF version
+curl --url "http://127.0.0.1:8099/api/version"
 ```
 
-### Via RPC API:
+### From Command Line (binary):
+Only available if the upstream image provides the `kdf` binary:
 ```bash
-curl --url "http://127.0.0.1:7783" --data '{
-  "method": "version",
-  "userpass": "your_rpc_password"
-}'
+# Check version via binary inside the running container
+docker exec local_kdf /usr/local/bin/kdf --version
 ```
 
 ## Home Assistant Integration
@@ -109,27 +137,6 @@ The panel server supports configurable cache/TTL settings. Create `/data/panel_c
 
 If the file is missing the server falls back to sensible defaults.
 
-## Exchange Rates (recommended integration)
-
-This add-on no longer ships its own exchange‑rate sensors. Instead it **integrates with Home Assistant's official Open Exchange Rates integration**. This reduces duplication and leverages the well‑maintained HA integration.
-
-What to do:
-
-1. Obtain an OpenExchangeRates API key: `https://openexchangerates.org`
-2. Install the **Open Exchange Rates** integration in Home Assistant: Settings → Devices & Services → Add Integration → "Open Exchange Rates". Enter your API key.
-3. Enable the fiat currencies you want to use in the integration's sensor options.
-
-How the add-on uses it:
-
-- The add‑on will detect available fiat sensors provided by the Open Exchange Rates integration and write a small manifest to `/data/available_fiats.json`.
-- The add‑on UI will read `/api/available_fiats` (panel server proxy) and populate a fiat selection dropdown in the add‑on settings.
-- If the Open Exchange Rates integration is not installed, the add‑on will gracefully fall back and display `N/A` where fiat values would otherwise be shown, and provide instructions to install the integration.
-
-Security and notes:
-
-- Installing the official integration is the recommended, privacy‑aware approach. The add‑on will not auto‑install anything into your Home Assistant configuration; installation is always opt‑in.
-- If you prefer not to install the integration, the add‑on continues to work but fiat fields will show `N/A`.
-
 ### Features
 
 - **Real-time Orderbooks**: Live orderbook data for all supported cryptocurrencies
@@ -169,9 +176,6 @@ For users who prefer individual cards in their dashboards, custom Lovelace cards
 - If `/usr/local/bin/kdf` is not present in the upstream image, adjust the Dockerfile COPY path accordingly.
 
 
-## Optional features:
-
-For exchange rates, this add-on relies on Home Assistant's official Open Exchange Rates integration. See the "Exchange Rates (recommended integration)" section above for details.
 
 ## Creating Home Assistant entities from the Panel API
 
@@ -221,4 +225,3 @@ template:
 Notes:
 - Use the panel server base (`http://127.0.0.1:8099` inside the add-on container). When accessing from Home Assistant, replace with the add‑on ingress path or the add‑on host IP as appropriate.
 - The `hadex_status_raw` REST sensor stores the full JSON in attributes (version, peer_count, enabled_coins). Use `template` sensors to expose friendly attributes.
-- For fiat values, install Home Assistant's Open Exchange Rates integration and use its sensors to compute fiat conversions in templates or automations.

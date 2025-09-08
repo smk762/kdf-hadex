@@ -300,9 +300,10 @@ class KDFTradingActionsCard extends HTMLElement {
             }
 
             const data = await response.json();
-            
             if (data.error) {
-                throw new Error(data.error);
+                console.error('KDF error (sell):', data.error);
+                this.showStatus('sell-status', `Error: ${data.error}`, 'error');
+                return;
             }
 
             // store raw response for debugging
@@ -342,9 +343,10 @@ class KDFTradingActionsCard extends HTMLElement {
             }
 
             const data = await response.json();
-            
             if (data.error) {
-                throw new Error(data.error);
+                console.error('KDF error (buy):', data.error);
+                this.showStatus('buy-status', `Error: ${data.error}`, 'error');
+                return;
             }
 
             // store raw response for debugging

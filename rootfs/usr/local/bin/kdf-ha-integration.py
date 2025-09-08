@@ -15,6 +15,9 @@ import logging
 import requests
 from typing import Dict, Any, Optional
 import pykomodefi
+import os
+sys.path.insert(0, '/usr/local/lib')
+from kdf_utils import ensure_coins_config, get_coin_protocol_type, KdfMethod, KdfMethod  # type: ignore
 
 
 def load_addon_options():
@@ -82,6 +85,16 @@ class KDFHAIntegration:
     def initialize_kdf(self):
         """Initialize KDF API connection"""
         try:
+            ensure_coins_config()
+            # Ensure MM2.json exists by invoking the generator which writes MM2.json from options.json
+            gen_script = '/usr/local/bin/generate_mm2.py'
+            if os.path.exists(gen_script):
+                try:
+                    import subprocess
+                    subprocess.call(['/opt/kdf-venv/bin/python3' if os.path.exists('/opt/kdf-venv/bin/python3') else 'python3', gen_script])
+                except Exception:
+                    pass
+
             if os.path.exists(self.mm2_config_path):
                 self.kdf_api = pykomodefi.KomoDeFi_API(config=self.mm2_config_path)
                 logger.info("KDF API initialized successfully")
@@ -147,17 +160,10 @@ class KDFHAIntegration:
         try:
             if not self.kdf_api:
                 return {"status": "disconnected", "version": "", "peer_count": 0, "enabled_coins": []}
-
-            # Version via RPC (or pykomodefi attribute)
-            version = 'unknown'
+            # Version via shared helper (cached)
             try:
-                v = self.rpc_call('version')
-                if isinstance(v, dict) and 'result' in v:
-                    version = v['result']
-                elif isinstance(v, str):
-                    version = v
-                else:
-                    version = str(v)
+                from kdf_utils import get_kdf_version  # type: ignore
+                version = get_kdf_version()
             except Exception:
                 try:
                     version = getattr(self.kdf_api, 'version', 'unknown')
@@ -167,16 +173,12 @@ class KDFHAIntegration:
             # Fetch enabled coins via RPC (cached behavior handled by caller if needed)
             coin_tickers = []
             try:
-                coins_res = self.rpc_call('get_enabled_coins')
-                if isinstance(coins_res, list):
-                    for c in coins_res:
-                        if isinstance(c, dict):
-                            t = c.get('ticker') or c.get('coin')
-                            if t:
-                                coin_tickers.append(t)
-                        elif isinstance(c, str):
-                            coin_tickers.append(c)
-            except Exception:
+                res = self.rpc_call('get_enabled_coins')
+                res = res.get('result')
+                coins_res = res.get('coins')
+                coin_tickers = [i.get('ticker') for i in coins_res]
+            except Exception as e:
+                logger.error(f"Error getting enabled coins: {e}")
                 coin_tickers = []
 
             # Fetch peers via panel server authoritative API if available
@@ -343,21 +345,6 @@ class KDFHAIntegration:
         except Exception as e:
             logger.error(f"Error updating HA supervisor entities: {e}")
 
-    def create_ha_entities(self):
-        """Create Home Assistant entities for KDF data.
-
-        This implementation is intentionally lightweight: the addon/HA integration
-        manages entity registration. Here we log intent and mark entities as created
-        so the run loop can continue without raising AttributeError.
-        """
-        try:
-            logger.info("Creating Home Assistant entities (stub)")
-            # In a full implementation we would call self.create_ha_entity(...) for each
-            # entity we wish to register. For now, mark as created to avoid repeated
-            # registration attempts and to allow the update loop to run.
-            self.entities_created = True
-        except Exception as e:
-            logger.error(f"Failed to create Home Assistant entities: {e}")
 
     def rpc_call(self, method: str, params: Optional[Dict[str, Any]] = None) -> Any:
         """Wrapper around KDF RPC that logs request and response for debugging.
@@ -367,46 +354,56 @@ class KDFHAIntegration:
         try:
             logger.debug(f"KDF RPC call -> method: {method}, params: {params}")
 
-            # Decide version: consult method_versions override, then legacy_methods
-            mv = self.method_versions.get(method)
-            if mv == 'legacy' or mv == 'v1':
-                is_legacy = True
-            elif mv == 'v2':
-                is_legacy = False
-            else:
-                is_legacy = method in self.legacy_methods
-
-            rpc_url = f'http://127.0.0.1:{self.rpc_port}/'
+            # Reload addon options on each RPC call so changes to /data/options.json
+            # (written after startup) are respected without restarting the integration.
+            opts = load_addon_options()
+            rpc_port = str(opts.get('rpc_port', self.rpc_port))
+            rpc_password = opts.get('rpc_password', self.rpc_password)
+            rpc_url = f'http://127.0.0.1:{rpc_port}/'
             headers = {'Content-Type': 'application/json'}
 
-            # Build payload
-            if is_legacy:
-                payload = {'method': method}
-                if isinstance(params, dict):
-                    for k, v in params.items():
-                        payload[k] = v
+            # Build KdfMethod wrapper if available
+            method_payload = {'method': method, 'params': params or {}}
+            method_obj = None
+            try:
+                if KdfMethod is not None:
+                    method_obj = KdfMethod(method_payload, self.method_versions, self.legacy_methods, {}, set(), lambda k, d: d)
+            except Exception:
+                method_obj = None
+
+            if method_obj:
+                payload = method_obj.as_payload(rpc_password)
+                timeout = method_obj.timeout
             else:
-                # Special-case get_enabled_coins: omit params due to upstream bug
-                if method == 'get_enabled_coins':
-                    payload = {'method': method, 'mmrpc': '2.0'}
+                # fallback to previous behavior
+                mv = self.method_versions.get(method)
+                if mv == 'legacy' or mv == 'v1':
+                    is_legacy = True
+                elif mv == 'v2':
+                    is_legacy = False
                 else:
-                    payload = {'method': method, 'mmrpc': '2.0', 'params': params or {}}
+                    is_legacy = method in self.legacy_methods
 
-            # `version` method does not require RPC auth; enforce rpc_password is present for other methods
-            if method != 'version' and not self.rpc_password:
+                if is_legacy:
+                    payload = {'method': method}
+                    if isinstance(params, dict):
+                        for k, v in params.items():
+                            payload[k] = v
+                else:
+                    if method == 'get_enabled_coins':
+                        payload = {'method': method, 'mmrpc': '2.0'}
+                    else:
+                        payload = {'method': method, 'mmrpc': '2.0', 'params': params or {}}
+                if rpc_password:
+                    payload['userpass'] = rpc_password
+                timeout = 5
+
+            # enforce auth for non-version
+            if method != 'version' and not rpc_password:
                 raise Exception(f"rpc_password is missing in /data/options.json; required for RPC method: {method}. Please set 'rpc_password' in addon options.")
-            if self.rpc_password:
-                payload['userpass'] = self.rpc_password
 
-            # Logging
-            masked = dict(payload)
-            if 'userpass' in masked:
-                masked['userpass'] = '***'
-            logger.debug(f"KDF RPC outgoing masked payload: {masked}")
-            logger.debug(f"KDF RPC outgoing raw payload: {payload}")
 
-            # POST
-            resp = requests.post(rpc_url, json=payload, headers=headers, timeout=5)
+            resp = requests.post(rpc_url, json=payload, headers=headers, timeout=timeout)
             logger.debug(f"KDF RPC response status={getattr(resp, 'status_code', 'n/a')}")
             try:
                 text = resp.text
@@ -415,16 +412,22 @@ class KDFHAIntegration:
                 text = ''
 
             if resp.status_code >= 400:
-                # Retry workaround for v2 methods that fail with empty params
-                if not is_legacy and isinstance(payload.get('params', None), dict) and payload.get('params') == {}:
+                # Retry workaround for v2 empty params
+                is_legacy = method_obj.is_legacy if method_obj else (method in self.legacy_methods)
+                params_empty = False
+                if method_obj:
+                    params_empty = isinstance(method_obj.params, dict) and method_obj.params == {}
+                else:
+                    params_empty = isinstance(params, dict) and params == {}
+
+                if not is_legacy and params_empty:
                     lw = text.lower()
                     if 'expected unit struct' in lw or 'invalid type: map' in lw or 'getenabledcoinsrequest' in lw:
-                        # retry without params
                         alt_payload = {'method': method, 'mmrpc': '2.0'}
-                        if self.rpc_password:
-                            alt_payload['userpass'] = self.rpc_password
+                        if rpc_password:
+                            alt_payload['userpass'] = rpc_password
                         logger.debug(f"Retrying KDF RPC without params for method={method}: masked={ {k:(v if k!='userpass' else '***') for k,v in alt_payload.items()} }")
-                        alt_resp = requests.post(rpc_url, json=alt_payload, headers=headers, timeout=5)
+                        alt_resp = requests.post(rpc_url, json=alt_payload, headers=headers, timeout=timeout)
                         try:
                             alt_text = alt_resp.text
                             logger.debug(f"KDF RPC retry response body: {alt_text}")
@@ -472,10 +475,6 @@ class KDFHAIntegration:
             logger.error("Failed to initialize KDF API after maximum retries")
             return
         
-        # Create Home Assistant entities
-        logger.info("Creating Home Assistant entities...")
-        self.create_ha_entities()
-        
         # Main update loop
         logger.info(f"Starting update loop (interval: {self.update_interval}s)")
         while True:
@@ -491,8 +490,4 @@ class KDFHAIntegration:
 
 if __name__ == "__main__":
     integration = KDFHAIntegration()
-    # Early fail: ensure rpc_password is configured for normal operation (version method is exception)
-    if not integration.rpc_password:
-        print('[kdf-ha] ERROR: rpc_password is missing in /data/options.json. The HA integration requires rpc_password for authenticated KDF RPC calls (the "version" method is an exception). Please set "rpc_password" in addon options and restart the addon.')
-        sys.exit(1)
     integration.run()

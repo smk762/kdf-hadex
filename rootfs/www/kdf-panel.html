@@ -49,6 +49,10 @@
     <div class="header">
         <h1>KDF Trading Dashboard</h1>
         <p>Komodo DeFi Framework Integration</p>
+        <div style="display:flex;gap:8px;align-items:center;justify-content:center">
+          <button class="refresh-btn" @click=${this.refreshData}>Refresh Data</button>
+        </div>
+        <div id="exchange-indicator" style="margin-top:8px;font-size:0.9rem"></div>
     </div>
 
     <div class="status-card">
@@ -63,7 +67,7 @@
         </div>
         <div class="status-item">
             <span class="status-label">Peer Count:</span>
-            <span class="status-value" id="peer-count">-</span>
+            <a class="status-value" id="peer-count" href="./peers.html">-</a>
         </div>
         <div class="status-item">
             <span class="status-label">Enabled Coins:</span>
@@ -91,15 +95,8 @@
         <h3>Information</h3>
         <p>This dashboard shows real-time data from the Komodo DeFi Framework (KDF) running in your Home Assistant add-on.</p>
         <p>Data is collected every 30 seconds and displayed here for monitoring your trading activity.</p>
-        <p><a href="./peers.html" id="peers-demo-link">Open Peers Demo</a></p>
-        <p>Card demos: <a href="./orderbook.html">Orderbook</a> | <a href="./peers.html">Peers</a> | <a href="./kdf-panel.html">Full Panel</a></p>
-        <div style="margin-top:8px;">
-            <label for="fiat-select" style="font-weight:600;">Selected Fiat</label>
-            <select id="fiat-select" style="margin-left:8px;min-width:160px;">
-                <option value="">No fiat available</option>
-            </select>
-            <div id="fiat-help" style="font-size:0.85rem;color:#ccc;margin-top:6px;">Install the Open Exchange Rates integration and enable preferred fiats to populate this list.</div>
-        </div>
+        <p><strong>Wallet name</strong>: <span id="wallet-name">HAOS KDF Wallet</span> (read-only)</p>
+        <p>Card demos: <a href="./orderbook.html">Orderbook</a> | <a href="./best-orders.html">Best Orders</a> | <a href="./recent-swaps.html">Recent Swaps</a> | <a href="./active-swaps.html">Active Swaps</a> | <a href="./coins.html">Coins</a></p>
     </div>
 
     <div class="status-card">
@@ -111,9 +108,76 @@
     <div class="status-card">
         <h3>Quick Links</h3>
         <div>
-            <a href="./orderbook.html" target="_blank">Orderbook Demo</a> |
-            <a href="./peers.html" target="_blank">Peers Demo</a> |
-            <a href="./kdf-panel.html" target="_blank">Full Panel</a>
+            <a href="./active-swaps.html" target="_blank">Active Swaps</a> |
+            
+            <a href="./best-orders.html" target="_blank">Best Orders</a> |
+            <a href="./recent-swaps.html" target="_blank">Recent Swaps</a> |
+            <a href="./coins.html" target="_blank">Coins</a> |
+            <a href="./peers.html" target="_blank">Peers</a> |
+            <a href="./orderbook.html" target="_blank">Orderbook</a> |
+            <a href="./dashboard.html" target="_blank">Dashboard</a> |
+            
+            <a href="/hassio/addon/local_kdf-hadex/info" target="_blank">Addon Info</a> |
+            <a href="/hassio/addon/local_kdf-hadex/logs" target="_blank">Addon Logs</a> |
+            <a href="/hassio/addon/local_kdf-hadex/config" target="_blank">Addon Config</a> |
+            <a href="./kdf-panel.html" target="_blank">KDF Panel</a> |
+            <a href="./kdf-settings.html" target="_blank">Settings</a>
+        </div>
+    </div>
+
+    <!-- Validation modal for addon info start -->
+    <div id="config-validate-modal" style="display:none;position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,0.6);align-items:center;justify-content:center;z-index:9999">
+        <div style="background:#fff;color:#000;padding:20px;border-radius:8px;max-width:720px;margin:40px auto;">
+            <h3>Addon Configuration Validation</h3>
+            <div id="config-validate-body">Checking...</div>
+            <div style="margin-top:12px;text-align:right">
+                <button id="config-validate-close" style="margin-right:8px;padding:8px 12px;border-radius:6px">Close</button>
+                <button id="config-validate-edit" style="background:#00d4aa;border:none;padding:8px 12px;border-radius:6px">Open Add-on Info</button>
+            </div>
+        </div>
+    </div>
+    <!-- Validation modal for addon info end -->
+
+    <!-- Mnemonic management panel -->
+    <div class="status-card">
+        <h3>Mnemonic & Wallet</h3>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+            <label><input type="checkbox" id="import-mnemonic-checkbox"> Import mnemonic</label>
+            <button id="export-mnemonic-encrypted" style="padding:6px 10px;background:#00d4aa;border:none;border-radius:6px;color:#000">Export encrypted mnemonic</button>
+            <button id="export-mnemonic-plaintext" style="padding:6px 10px;background:#ffcc00;border:none;border-radius:6px;color:#000">Show plaintext mnemonic</button>
+            <button id="change-mnemonic-password" style="padding:6px 10px;background:#ff7043;border:none;border-radius:6px;color:#fff">Change wallet password</button>
+            <button id="delete-wallet" style="padding:6px 10px;background:#d32f2f;border:none;border-radius:6px;color:#fff">Delete wallet</button>
+        </div>
+        <div id="import-mnemonic-area" style="margin-top:12px;display:none">
+            <label for="bip39-input">BIP39 mnemonic (12 or 24 words)</label><br>
+            <textarea id="bip39-input" rows="3" style="width:100%;background:#121212;color:#fff;border-radius:6px;border:1px solid #333;padding:8px"></textarea>
+            <div style="margin-top:8px"><button id="save-import-mnemonic" style="padding:6px 10px;background:#00d4aa;border:none;border-radius:6px;color:#000">Save mnemonic</button></div>
+        </div>
+    </div>
+
+    <!-- Export / Delete modals -->
+    <div id="mnemonic-output-modal" style="display:none;position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,0.6);align-items:center;justify-content:center;z-index:9999">
+        <div style="background:#fff;color:#000;padding:20px;border-radius:8px;max-width:720px;margin:40px auto;">
+            <h3>Mnemonic Export</h3>
+            <pre id="mnemonic-output" style="white-space:pre-wrap;background:#f4f4f4;padding:10px;border-radius:6px;max-height:320px;overflow:auto"></pre>
+            <div style="margin-top:12px;text-align:right">
+                <button id="mnemonic-download" style="margin-right:8px;padding:8px 12px;border-radius:6px">Save response to file</button>
+                <button id="mnemonic-close" style="padding:8px 12px;border-radius:6px">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="delete-wallet-modal" style="display:none;position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,0.6);align-items:center;justify-content:center;z-index:9999">
+        <div style="background:#fff;color:#000;padding:20px;border-radius:8px;max-width:720px;margin:40px auto;">
+            <h3>Delete Wallet (Danger)</h3>
+            <p>This will delete the static wallet <strong>HAOS KDF Wallet</strong>. This action is irreversible. Back up the wallet before deletion.</p>
+            <label for="delete-password">Enter wallet password to confirm:</label>
+            <input id="delete-password" type="password" style="width:100%;padding:8px;margin-top:8px;border-radius:6px;border:1px solid #ccc" />
+            <div style="margin-top:12px;text-align:right">
+                <button id="backup-before-delete" style="margin-right:8px;padding:8px 12px;border-radius:6px">Backup wallet</button>
+                <button id="confirm-delete-wallet" style="margin-right:8px;padding:8px 12px;background:#d32f2f;border:none;border-radius:6px;color:#fff">Delete</button>
+                <button id="cancel-delete-wallet" style="padding:8px 12px;border-radius:6px">Cancel</button>
+            </div>
         </div>
     </div>
 
@@ -127,8 +191,15 @@
                 const response = await fetch('./api/status');
                 const data = await response.json();
                 
-                document.getElementById('connection-status').textContent = data.status;
-                document.getElementById('connection-status').className = 'status-value success';
+                // Show no-login or logged in state
+                const noLogin = data.no_login === true || data.no_login === 'true';
+                if (noLogin) {
+                    document.getElementById('connection-status').textContent = 'No-login mode';
+                    document.getElementById('connection-status').className = 'status-value';
+                } else {
+                    document.getElementById('connection-status').textContent = `Logged into ${data.wallet_name || 'wallet'}`;
+                    document.getElementById('connection-status').className = 'status-value success';
+                }
                 document.getElementById('kdf-version').textContent = data.version;
                 // Prefer peers endpoint for live peer count when available
                 try {
@@ -143,57 +214,8 @@
                 } catch (e) {
                     document.getElementById('peer-count').textContent = `${data.peer_count} peers`;
                 }
-                document.getElementById('enabled-coins').textContent = (data.enabled_coins || []).join(', ');
-                // Fetch available fiats from panel server to populate addon settings UI later
-                try {
-                    const af = await fetch('./api/available_fiats');
-                    if (af.ok) {
-                        const afj = await af.json();
-                        window.__hadex_available_fiats = afj.available_fiats || [];
-                    } else {
-                        window.__hadex_available_fiats = [];
-                    }
-                } catch (e) {
-                    window.__hadex_available_fiats = [];
-                }
-                // Populate fiat dropdown from available fiats
-                try {
-                    const sel = document.getElementById('fiat-select');
-                    sel.innerHTML = '';
-                    const arr = window.__hadex_available_fiats || [];
-                    if (!arr || arr.length === 0) {
-                        const opt = document.createElement('option');
-                        opt.value = '';
-                        opt.textContent = 'No fiat sensors available';
-                        sel.appendChild(opt);
-                    } else {
-                        arr.forEach(item => {
-                            const o = document.createElement('option');
-                            o.value = item.currency || item.entity_id;
-                            o.textContent = item.currency || item.entity_id;
-                            sel.appendChild(o);
-                        });
-                        // set selected to options.json value if exists
-                        try {
-                            const optsResp = await fetch('./api/options');
-                            if (optsResp.ok) {
-                                const oj = await optsResp.json();
-                                const selFiat = (oj.options || {}).selected_fiat_currency;
-                                if (selFiat) sel.value = selFiat;
-                            }
-                        } catch (e) {}
-                        sel.addEventListener('change', async function () {
-                            const v = sel.value;
-                            try {
-                                await fetch('./api/set_fiat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fiat: v }) });
-                            } catch (e) {
-                                console.error('Failed to save fiat selection', e);
-                            }
-                        });
-                    }
-                } catch (e) {
-                    console.error('Failed to populate fiat dropdown', e);
-                }
+                const enabledList = (data.enabled_coins || []);
+                document.getElementById('enabled-coins').textContent = (Array.isArray(enabledList) && enabledList.length) ? enabledList.join(', ') : 'None';
             } catch (error) {
                 console.error('Error fetching status:', error);
                 document.getElementById('connection-status').textContent = 'Error';
@@ -203,15 +225,69 @@
 
         async function fetchTradingData() {
             try {
-                // Use relative path for ingress
-                const response = await fetch('./api/data');
-                const data = await response.json();
-                
-                document.getElementById('active-swaps').textContent = data.active_swaps;
-                document.getElementById('my-orders').textContent = data.my_orders;
-                document.getElementById('recent-swaps').textContent = data.recent_swaps;
+                // Call individual KDF RPC methods via POST /api/kdf_request
+                const calls = [
+                    { method: 'active_swaps' },
+                    { method: 'my_orders' },
+                    { method: 'my_recent_swaps' }
+                ];
+
+                const results = await Promise.all(calls.map(c => fetch('./api/kdf_request', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(c)
+                }).then(r => r.ok ? r.json() : Promise.reject(r.statusText)).catch(e => { console.error('RPC error', e); return null; })));
+
+                // active_swaps
+                try {
+                    const a = results[0];
+                    let active_count = 0;
+                    if (a && a.result) {
+                        const r = a.result;
+                        if (Array.isArray(r)) {
+                            active_count = r.length;
+                        } else if (r && typeof r === 'object') {
+                            const uuids = r.uuids || [];
+                            active_count = Array.isArray(uuids) ? uuids.length : 0;
+                        }
+                    }
+                    document.getElementById('active-swaps').textContent = active_count;
+                } catch (e) { console.error(e); }
+
+                // my_orders
+                try {
+                    const m = results[1];
+                    let my_orders_count = 0;
+                    if (m && m.result) {
+                        const r = m.result;
+                        let maker_count = 0, taker_count = 0;
+                        if (r.maker_orders && typeof r.maker_orders === 'object') {
+                            if (Array.isArray(r.maker_orders)) maker_count = r.maker_orders.length;
+                            else maker_count = Object.values(r.maker_orders).reduce((s, v) => s + (Array.isArray(v) ? v.length : 0), 0);
+                        }
+                        if (r.taker_orders && typeof r.taker_orders === 'object') {
+                            if (Array.isArray(r.taker_orders)) taker_count = r.taker_orders.length;
+                            else taker_count = Object.values(r.taker_orders).reduce((s, v) => s + (Array.isArray(v) ? v.length : 0), 0);
+                        }
+                        my_orders_count = maker_count + taker_count;
+                    }
+                    document.getElementById('my-orders').textContent = my_orders_count;
+                } catch (e) { console.error(e); }
+
+                // recent swaps
+                try {
+                    const rj = results[2];
+                    let recent_count = 0;
+                    if (rj && rj.result) {
+                        const r = rj.result;
+                        if (Array.isArray(r.swaps)) recent_count = r.swaps.length;
+                        else if (Array.isArray(r)) recent_count = r.length;
+                    }
+                    document.getElementById('recent-swaps').textContent = recent_count;
+                } catch (e) { console.error(e); }
+
             } catch (error) {
-                console.error('Error fetching trading data:', error);
+                console.error('Error fetching trading data via kdf_request:', error);
             }
         }
 
@@ -225,12 +301,182 @@
         // Update every 30 seconds
         setInterval(updateStatus, 30000);
 
-        // Add peers demo link handler to open peers card demo (ingress path)
-        document.getElementById('peers-demo-link').addEventListener('click', function (e) {
-            e.preventDefault();
-            // Open the peers demo page served by this panel: /ingress/peers
-            window.location.href = './peers.html';
+        // Show validation modal if user opens addon info from this dashboard
+        document.addEventListener('DOMContentLoaded', function(){
+            const openInfo = document.querySelector('a[href="/hassio/addon/local_kdf-hadex/info"]');
+            if (openInfo) {
+                openInfo.addEventListener('click', async function(e){
+                    e.preventDefault();
+                    // Call validation endpoint
+                    try {
+                        const resp = await fetch('./api/validate_config', { method: 'POST' });
+                        if (!resp.ok) {
+                            document.getElementById('config-validate-body').textContent = 'Validation failed to run';
+                        } else {
+                            const j = await resp.json();
+                            if (j.ok) {
+                                document.getElementById('config-validate-body').innerHTML = '<p style="color:green">Configuration looks valid. You may start the add-on.</p>';
+                                document.getElementById('config-validate-edit').textContent = 'Open Add-on Info';
+                            } else {
+                                const list = document.createElement('ul');
+                                j.problems.forEach(p => {
+                                    const li = document.createElement('li'); li.textContent = p.message; list.appendChild(li);
+                                });
+                                const wrap = document.getElementById('config-validate-body');
+                                wrap.innerHTML = '<p style="color:red">Configuration issues found. Please update the addon configuration before starting the add-on.</p>';
+                                wrap.appendChild(list);
+                                document.getElementById('config-validate-edit').textContent = 'Open Add-on Info (edit)';
+                            }
+                        }
+                    } catch (err) {
+                        document.getElementById('config-validate-body').textContent = 'Error checking configuration: ' + String(err);
+                    }
+                    document.getElementById('config-validate-modal').style.display = 'flex';
+                });
+            }
+
+            document.getElementById('config-validate-close').addEventListener('click', function(){
+                document.getElementById('config-validate-modal').style.display = 'none';
+            });
+            document.getElementById('config-validate-edit').addEventListener('click', function(){
+                // open addon info in new tab so user can edit
+                window.open('/hassio/addon/local_kdf-hadex/info', '_blank');
+            });
         });
+
+    // Mnemonic UI handlers
+    (function(){
+        const importCheckbox = document.getElementById('import-mnemonic-checkbox');
+        const importArea = document.getElementById('import-mnemonic-area');
+        const bip39Input = document.getElementById('bip39-input');
+        const saveImportBtn = document.getElementById('save-import-mnemonic');
+        const exportEncBtn = document.getElementById('export-mnemonic-encrypted');
+        const exportPlainBtn = document.getElementById('export-mnemonic-plaintext');
+        const outputModal = document.getElementById('mnemonic-output-modal');
+        const outputPre = document.getElementById('mnemonic-output');
+        const outputClose = document.getElementById('mnemonic-close');
+        const downloadBtn = document.getElementById('mnemonic-download');
+        const changePwdBtn = document.getElementById('change-mnemonic-password');
+        const deleteWalletBtn = document.getElementById('delete-wallet');
+        const deleteModal = document.getElementById('delete-wallet-modal');
+        const cancelDelete = document.getElementById('cancel-delete-wallet');
+        const confirmDelete = document.getElementById('confirm-delete-wallet');
+        const backupBtn = document.getElementById('backup-before-delete');
+
+        importCheckbox.addEventListener('change', function(){
+            importArea.style.display = importCheckbox.checked ? 'block' : 'none';
+        });
+
+        saveImportBtn.addEventListener('click', async function(){
+            const txt = bip39Input.value.trim();
+            if(!txt){ alert('Please paste a BIP39 mnemonic'); return; }
+            // Merge into options via merge_options endpoint so we do not overwrite unrelated settings
+            try{
+                const body = { bip39_mnemonic: txt, import_mnemonic: true };
+                const r = await fetch('./api/merge_options', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+                if(!r.ok) throw new Error(await r.text());
+                alert('Mnemonic saved to addon options. Restart addon to apply.');
+            }catch(e){ console.error(e); alert('Failed to save mnemonic'); }
+        });
+
+        async function doExport(format, password){
+            try{
+                const body = { format: format };
+                if(format === 'plaintext') body.password = password || '';
+                const r = await fetch('./api/export_mnemonic', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+                if(!r.ok){ const te = await r.text(); throw new Error(te || 'Export failed'); }
+                const j = await r.json();
+                const res = j.result || j;
+                outputPre.textContent = JSON.stringify(res, null, 2);
+                outputModal.style.display = 'flex';
+                downloadBtn.onclick = function(){
+                    const walletName = 'HAOS_KDF_Wallet';
+                    const blob = new Blob([JSON.stringify(res)], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url; a.download = `kdf_${walletName}.json`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+                };
+            }catch(e){ alert('Export failed: '+String(e)); }
+        }
+
+        exportEncBtn.addEventListener('click', function(){ doExport('encrypted'); });
+        exportPlainBtn.addEventListener('click', async function(){
+            const pwd = prompt('Enter wallet password to decrypt mnemonic (will not be stored)');
+            if(!pwd) return; await doExport('plaintext', pwd);
+        });
+
+        outputClose.addEventListener('click', function(){ outputModal.style.display = 'none'; });
+
+        changePwdBtn.addEventListener('click', async function(){
+            const current = prompt('Enter current mnemonic password'); if(!current) return;
+            const neo = prompt('Enter new mnemonic password'); if(!neo) return;
+            try{
+                const payload = { current_password: current, new_password: neo };
+                const resp = await fetch('./api/change_mnemonic_password', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+                if(!resp.ok) throw new Error(await resp.text());
+                const j = await resp.json();
+                if(j.wallet_password_synced){
+                    alert('Mnemonic password changed and addon options updated to match.');
+                } else {
+                    alert('Mnemonic password changed (KDF responded). Please update wallet_password in addon options to match.');
+                }
+            }catch(e){ alert('Change password failed: '+String(e)); }
+        });
+
+        deleteWalletBtn.addEventListener('click', function(){ deleteModal.style.display = 'flex'; });
+        cancelDelete.addEventListener('click', function(){ deleteModal.style.display = 'none'; });
+
+        backupBtn.addEventListener('click', async function(){
+            // Attempt to export encrypted mnemonic for backup
+            try{ await doExport('encrypted'); alert('Backup started in export modal'); }catch(e){ alert('Backup failed: '+String(e)); }
+        });
+
+        confirmDelete.addEventListener('click', async function(){
+            const pwd = document.getElementById('delete-password').value;
+            if(!pwd){ alert('Enter wallet password'); return; }
+            if(!confirm('Are you sure? This will permanently delete the wallet.')) return;
+            try{
+                const resp = await fetch('./api/delete_wallet', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ password: pwd }) });
+                if(!resp.ok) throw new Error(await resp.text());
+                const j = await resp.json();
+                if(j.options_synced){
+                    alert('Wallet deleted and addon options updated.');
+                } else {
+                    alert('Wallet deleted (KDF responded).');
+                }
+                deleteModal.style.display = 'none';
+            }catch(e){ alert('Delete failed: '+String(e)); }
+        });
+    })();
+
+        // Add peers demo link handler to open peers card demo (ingress path) - only if element exists
+        const peersDemoEl = document.getElementById('peers-demo-link');
+        if (peersDemoEl) {
+            peersDemoEl.addEventListener('click', function (e) {
+                e.preventDefault();
+                // Open the peers demo page served by this panel: /ingress/peers
+                window.location.href = './peers.html';
+            });
+        }
+    </script>
+    <script>
+        // Fetch coins config from panel API and expose as global for frontend autocompletes
+        (async function(){
+            try {
+                const r = await fetch('./api/coins_config');
+                if (r.ok) {
+                    const j = await r.json();
+                    window.COINS_CONFIG = j.coins_config || {};
+                    window.SUPPORTED_COINS = j.supported_coins || Object.keys(window.COINS_CONFIG || {});
+                } else {
+                    window.COINS_CONFIG = {};
+                    window.SUPPORTED_COINS = [];
+                }
+            } catch (e) {
+                window.COINS_CONFIG = {};
+                window.SUPPORTED_COINS = [];
+            }
+        })();
     </script>
 </body>
 </html>

@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>KDF Coins</title>
+    <style>
+        body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#111;color:#fff;padding:20px}
+        .container{max-width:1100px;margin:0 auto}
+        .card{background:#161616;border:1px solid #2a2a2a;border-radius:8px;padding:16px;margin-bottom:16px}
+        table{width:100%;border-collapse:collapse;margin-top:12px}
+        th,td{padding:8px;border-bottom:1px solid #222;text-align:left}
+        th{color:#9aa;font-weight:600}
+        .hint{font-size:0.9rem;color:#888}
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Coins Status</h1>
+    
+    <div style="margin:8px 0;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <div><p class="hint">Shows activation status and balances per supported coin.</p></div>
+        <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+            <input id="coins-filter" placeholder="Filter tickers or name..." style="padding:6px;border-radius:6px;background:#0f0f0f;color:#fff;border:1px solid #333;min-width:220px" />
+            <select id="sort-select" style="padding:6px;border-radius:6px;background:#0f0f0f;color:#fff;border:1px solid #333">
+                <option value="ticker">Sort by: Ticker</option>
+                <option value="activation_status">Activation Status</option>
+                <option value="addr_count">Address Count</option>
+                <option value="total_balance">Total Balance</option>
+                <option value="price">Price</option>
+                <option value="fiatValue">Value (fiat)</option>
+            </select>
+            <button id="sort-toggle" style="padding:6px;border-radius:6px;background:#888;border:none;color:#fff">Asc</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <table id="coins-table">
+            <thead>
+                <tr>
+                    <th>Ticker</th>
+                    <th>Activation Status</th>
+                    <th>Address Count</th>
+                    <th>Total Balance</th>
+                    <th>Price</th>
+                    <th>Value (fiat)</th>
+                    <th style="text-align:right">Action</th>
+                </tr>
+            </thead>
+            <tbody id="coins-body"><tr><td colspan="7" class="hint">Loading...</td></tr></tbody>
+        </table>
+    </div>
+</div>
+    <div id="coins-footnote" style="font-size:0.9rem;color:#888;margin-top:8px"></div>
+
+<script>
+    async function loadCoins(){
+        try{
+            const r = await fetch('./api/coins_config');
+            if(!r.ok) throw new Error('coins_config failed');
+            const cj = await r.json();
+            const supported = cj.supported_coins || Object.keys(cj.coins_config||{});
+
+            // fetch activation store
+            const a = await fetch('./api/activation_status');
+            const aj = a.ok ? await a.json() : {};
+            const act = aj.activation || {};
+
+            const body = document.getElementById('coins-body');
+            body.innerHTML = '';
+            const enabledRaw = aj.enabled_coins || [];
+            const enabledSet = new Set((Array.isArray(enabledRaw) ? enabledRaw.map(x => (typeof x === 'string' ? x.toUpperCase() : (x && x.ticker ? x.ticker.toUpperCase() : ''))) : []));
+
+            // get selected fiat and available fiat sensors
+            let selectedFiat = null;
+            let availableFiats = [];
+            try{
+                const opts = await fetch('./api/options');
+                if(opts.ok){ const oj = await opts.json(); selectedFiat = (oj.options||{}).selected_fiat_currency || null }
+            }catch(e){}
+            try{
+                const af = await fetch('./api/available_fiats');
+                if(af.ok){ const afj = await af.json(); availableFiats = afj.available_fiats || []; }
+            }catch(e){ availableFiats = []; }
+            // fetch KDF tickers (USD prices) if available
+            let kdfTickers = null;
+            try{
+                const tk = await fetch('./api/tickers');
+                if(tk.ok){ const tj = await tk.json(); kdfTickers = (tj && (tj.result||tj)) || null; }
+            }catch(e){ kdfTickers = null }
+
+            for(const t of supported){
+                const ticker = (t||'').toUpperCase();
+                const entry = act[ticker] || act[t] || {};
+                const status_raw = entry.status_raw || {};
+                let activation_status = 'unknown';
+                if (entry.failed_at) activation_status = 'failed';
+                else if (entry.completed_at) activation_status = 'ok';
+                else if (entry.task_id) activation_status = 'in progress';
+                const result = entry.result || (status_raw.result || {});
+                let addr_count = 0;
+                let total_balance = '--';
+                // try to extract wallet_balance -> accounts
+                try{
+                    const rr = (result && result.result) ? result.result : result;
+                    const wb = rr && rr.wallet_balance ? rr.wallet_balance : (rr && rr.result && rr.result.wallet_balance ? rr.result.wallet_balance : null);
+                    if(wb && wb.accounts){
+                        addr_count = 0;
+                        let sum = 0;
+                        for(const acc of wb.accounts){
+                            if(acc.addresses && Array.isArray(acc.addresses)){
+                                addr_count += acc.addresses.length;
+                            }
+                            if(acc.total_balance && acc.total_balance.spendable){
+                                sum += Number(acc.total_balance.spendable||0);
+                            }
+                        }
+                        total_balance = sum.toFixed ? sum.toFixed(6) : String(sum);
+                    }
+                }catch(e){console.error(e)}
+
+                // compute fiat value using KDF tickers (USD) and available fiat sensor rate
+                let fiatValue = 'N/A';
+                try{
+                    if(kdfTickers && total_balance !== '--' && selectedFiat){
+                        // derive USD price for ticker from kdfTickers (best-effort)
+                        let usdPrice = null;
+                        if(typeof kdfTickers === 'object'){
+                            const kk = kdfTickers[ticker] || kdfTickers[ticker.toUpperCase()];
+                            if(kk){
+                                if(typeof kk === 'number') usdPrice = kk;
+                                else if(kk.price) usdPrice = Number(kk.price);
+                                else if(kk.usd_price) usdPrice = Number(kk.usd_price);
+                            }
+                        }
+                        if(usdPrice !== null){
+                            // find fiat sensor
+                            const match = availableFiats.find(x => (x.currency && x.currency.toUpperCase() === selectedFiat.toUpperCase()) || (x.entity_id && x.entity_id.toUpperCase().indexOf(selectedFiat.toUpperCase())!==-1));
+                            if(match && match.state && !match.disabled){
+                                const fx = Number(match.state);
+                                if(isFinite(fx)){
+                                    const fv = Number(total_balance) * usdPrice * fx;
+                                    fiatValue = isFinite(fv) ? fv.toFixed(2) : 'N/A';
+                                }
+                            }
+                        }
+                    }
+                }catch(e){/*ignore*/}
+
+                // coin friendly name from coins_config
+                let friendlyName = '';
+                try{
+                    // prefer full metadata when available
+                    const meta = (cj.coins_full && (cj.coins_full[ticker] || cj.coins_full[ticker.toUpperCase()])) || (cj.coins_config && (cj.coins_config[ticker] || cj.coins_config[ticker.toUpperCase()] || cj.coins_config[ticker.toLowerCase()]));
+                    if(meta && typeof meta === 'object'){
+                        friendlyName = meta.name || meta.fname || '';
+                    }
+                }catch(e){}
+
+                const firstCell = friendlyName ? `${ticker} — ${friendlyName}` : `${ticker}`;
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td>${firstCell}</td><td>${activation_status}</td><td>${addr_count}</td><td>${total_balance}</td><td id="price-${ticker}">-</td><td>${fiatValue}</td><td style="text-align:right"></td>`;
+                const actionTd = tr.querySelector('td:last-child');
+
+                // button states
+                const btn = document.createElement('button');
+                const isEnabled = enabledSet.has(ticker);
+                if(isEnabled){
+                    btn.textContent = 'Connected'; btn.style.background = '#28a745'; btn.disabled = true;
+                } else if(entry.task_id && !entry.failed_at && !entry.completed_at){
+                    btn.innerHTML = '<span class="spinner" style="display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;margin-right:6px;animation:spin 1s linear infinite"></span> Activating';
+                    btn.style.background = '#ff9900'; btn.disabled = true;
+                } else if(entry.failed_at){
+                    btn.textContent = 'Failed'; btn.style.background = '#d9534f'; btn.disabled = false;
+                } else {
+                    btn.textContent = 'Activate'; btn.style.background = '#5bc0de'; btn.disabled = false;
+                }
+
+                btn.style.color = '#000'; btn.style.border = 'none'; btn.style.padding = '6px 10px'; btn.style.borderRadius = '6px';
+
+                btn.addEventListener('click', async (ev)=>{
+                    ev.preventDefault();
+                    // failed -> show modal
+                    if(entry.failed_at){
+                        showErrorModal(ticker, entry.status_raw || entry);
+                        return;
+                    }
+                    // otherwise trigger activation
+                    try{
+                        btn.disabled = true; btn.style.background = '#ff9900'; btn.innerHTML = '<span class="spinner" style="display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;margin-right:6px;animation:spin 1s linear infinite"></span> Activating';
+                        const resp = await fetch('./api/activate_coin',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ticker:ticker})});
+                        await resp.json();
+                    }catch(e){
+                        console.error('activate error',e);
+                        showErrorModal(ticker, {error: String(e)});
+                    }
+                    // refresh view
+                    await loadCoins();
+                });
+
+                actionTd.appendChild(btn);
+                body.appendChild(tr);
+            }
+        }catch(e){
+            console.error(e);
+            document.getElementById('coins-body').innerHTML = '<tr><td colspan="6" class="hint">Failed to load</td></tr>';
+        }
+    }
+
+    loadCoins();
+    setInterval(loadCoins, 60000);
+    // restore ui prefs
+    (async function(){
+        try{
+            const opts = await fetch('/api/options');
+            if(!opts.ok) return;
+            const oj = await opts.json();
+            const prefs = (oj.options||{}).ui_prefs || {};
+            if(prefs.coins_table_sort) document.getElementById('sort-select').value = prefs.coins_table_sort;
+            if(prefs.coins_table_order) document.getElementById('sort-toggle').textContent = prefs.coins_table_order === 'asc' ? 'Asc' : 'Desc';
+            // apply
+            loadAndSort();
+        }catch(e){}
+    })();
+    
+    // sorting and filtering
+    document.getElementById('coins-filter').addEventListener('input', () => debounceLoad());
+    document.getElementById('sort-select').addEventListener('change', () => loadAndSort());
+    document.getElementById('sort-toggle').addEventListener('click', (e)=>{ e.target.textContent = e.target.textContent==='Asc' ? 'Desc' : 'Asc'; loadAndSort(); });
+
+    let _debounceTimer = null;
+    function debounceLoad(){ if(_debounceTimer) clearTimeout(_debounceTimer); _debounceTimer = setTimeout(()=> loadAndSort(), 300); }
+
+    async function loadAndSort(){
+        await loadCoins();
+        const filter = document.getElementById('coins-filter').value.toLowerCase();
+        const sortBy = document.getElementById('sort-select').value;
+        const dir = document.getElementById('sort-toggle').textContent === 'Asc' ? 1 : -1;
+        const tbody = document.getElementById('coins-body');
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        const parsed = rows.map(r => {
+            const cells = r.querySelectorAll('td');
+            return { el: r, ticker: cells[0] ? cells[0].textContent.trim().toLowerCase() : '', activation_status: cells[1] ? cells[1].textContent.trim().toLowerCase() : '', addr_count: Number(cells[2] ? cells[2].textContent.trim() : 0), total_balance: Number(cells[3] ? cells[3].textContent.trim() : 0), price: Number(cells[4] ? cells[4].textContent.trim() : 0), fiatValue: Number(cells[5] ? cells[5].textContent.trim() : 0) };
+        }).filter(p => { if(!filter) return true; return p.ticker.indexOf(filter)!==-1; });
+        parsed.sort((a,b)=>{ if(a[sortBy] < b[sortBy]) return -1*dir; if(a[sortBy]>b[sortBy]) return 1*dir; return 0; });
+        tbody.innerHTML = '';
+        parsed.forEach(p => tbody.appendChild(p.el));
+        // persist UI prefs
+        try{
+            const sortBy = document.getElementById('sort-select').value;
+            const order = document.getElementById('sort-toggle').textContent === 'Asc' ? 'asc' : 'desc';
+            await fetch('/api/set_ui_prefs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({coins_table_sort: sortBy, coins_table_order: order})});
+        }catch(e){/*ignore*/}
+    }
+    
+    function showErrorModal(ticker, raw){
+        const modal = document.createElement('div');
+        modal.style = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:9999;';
+        const box = document.createElement('div');
+        box.style = 'background:#111;color:#fff;padding:16px;border-radius:8px;max-width:90%;max-height:90%;overflow:auto;';
+        const h = document.createElement('h3'); h.textContent = `Activation failed: ${ticker}`; box.appendChild(h);
+        const ta = document.createElement('textarea'); ta.readOnly = true; ta.style = 'width:100%;height:260px;background:#000;color:#fff;padding:8px;border-radius:6px;border:1px solid #333;'; ta.value = JSON.stringify(raw,null,2);
+        box.appendChild(ta);
+        const row = document.createElement('div'); row.style = 'display:flex;gap:8px;margin-top:8px;justify-content:flex-end;';
+        const copyBtn = document.createElement('button'); copyBtn.textContent = 'Copy'; copyBtn.style='padding:6px 10px;';
+        const retryBtn = document.createElement('button'); retryBtn.textContent = 'Retry'; retryBtn.style='padding:6px 10px;';
+        const closeBtn = document.createElement('button'); closeBtn.textContent = 'Close'; closeBtn.style='padding:6px 10px;';
+        copyBtn.addEventListener('click', ()=>{ navigator.clipboard.writeText(ta.value); });
+        retryBtn.addEventListener('click', async ()=>{ try{ await fetch('./api/activate_coin',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ticker})}); }catch(e){console.error(e)}; modal.remove(); await loadCoins(); });
+        closeBtn.addEventListener('click', ()=> modal.remove());
+        row.appendChild(copyBtn); row.appendChild(retryBtn); row.appendChild(closeBtn);
+        box.appendChild(row);
+        modal.appendChild(box); document.body.appendChild(modal);
+    }
+
+    // fiat select population and save
+    (async function(){
+        try{
+            const sf = await fetch('/api/supported_fiats');
+            if(!sf.ok) return;
+            const jf = await sf.json();
+            const arr = jf.fiats || [];
+            const sel = document.getElementById('fiat-select');
+            sel.innerHTML = '';
+            arr.forEach(f => { const o = document.createElement('option'); o.value = f; o.text = f; sel.appendChild(o); });
+            // set to current options value if exists
+            try{ const opts = await fetch('/api/options'); if(opts.ok){ const oj = await opts.json(); const cur = (oj.options||{}).selected_fiat_currency; if(cur) sel.value = cur; } }catch(e){}
+            document.getElementById('fiat-save').addEventListener('click', async ()=>{
+                const v = sel.value;
+                try{
+                    const resp = await fetch('/api/set_fiat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fiat:v})});
+                    if(resp.ok){
+                        // persist to localStorage so other panel pages update immediately
+                        try{ localStorage.setItem('kdf_selected_fiat', v); }catch(e){}
+                    }
+                    await loadCoins();
+                }catch(e){console.error(e)}
+            });
+        }catch(e){/*ignore*/}
+    })();
+</script>
+
+</body>
+</html>
+
+

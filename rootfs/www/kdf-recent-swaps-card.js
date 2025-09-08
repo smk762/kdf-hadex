@@ -216,14 +216,23 @@ class KDFRecentSwapsCard extends HTMLElement {
     async loadRecentSwaps() {
         try {
             // Fetch data from panel server API with retry/backoff
-            const payload = await this.fetchWithBackoff((this._config.panel_api_base || '') + '/api/kdf_request', { method: 'POST', body: JSON.stringify({ method: 'my_recent_swaps' }) }, { retries: 3, minTimeout: 500 });
-            if (payload && payload.recent_swaps_full) {
-                const transformed = this.transformRecentSwapsData(payload.recent_swaps_full);
+            const batch = [{ method: 'my_recent_swaps' }];
+            const results = await this.fetchWithBackoff((this._config.panel_api_base || '') + '/api/kdf_request', { method: 'POST', body: batch }, { retries: 3, minTimeout: 500 });
+            const payload = Array.isArray(results) ? results[0] : results;
+            if (payload && payload.error) {
+                const err = typeof payload.error === 'string' ? payload.error : JSON.stringify(payload.error);
+                console.error('KDF error (my_recent_swaps):', err);
+                this.displayError(err);
+                return;
+            }
+            const data = payload && payload.result ? payload.result : (payload && payload.recent_swaps_full ? payload.recent_swaps_full : payload);
+            if (data) {
+                const transformed = this.transformRecentSwapsData(data);
                 this.displayRecentSwaps(transformed);
             } else {
-                // Fallback to mock
-                const mockData = this.generateMockRecentSwaps();
-                this.displayRecentSwaps(mockData);
+                const msg = 'No recent swaps data returned from KDF';
+                console.error(msg, payload);
+                this.displayError(msg);
             }
             
             this.updateLastUpdated();
@@ -315,63 +324,6 @@ class KDFRecentSwapsCard extends HTMLElement {
         return `${minutes}m ${seconds}s`;
     }
 
-    generateMockRecentSwaps() {
-        const now = Date.now();
-        const mockSwaps = [
-            {
-                uuid: 'swap-001',
-                pair: 'BTC/AUD',
-                status: 'completed',
-                baseAmount: '0.00100000',
-                relAmount: '170.50',
-                completedAt: new Date(now - 300000).toLocaleString(),
-                startedAt: new Date(now - 600000).toLocaleString(),
-                duration: '5m 0s'
-            },
-            {
-                uuid: 'swap-002',
-                pair: 'ETH/AUD',
-                status: 'completed',
-                baseAmount: '0.05000000',
-                relAmount: '333.25',
-                completedAt: new Date(now - 1800000).toLocaleString(),
-                startedAt: new Date(now - 2100000).toLocaleString(),
-                duration: '5m 0s'
-            },
-            {
-                uuid: 'swap-003',
-                pair: 'LTC/AUD',
-                status: 'failed',
-                baseAmount: '1.00000000',
-                relAmount: '170.38',
-                completedAt: new Date(now - 3600000).toLocaleString(),
-                startedAt: new Date(now - 4200000).toLocaleString(),
-                duration: '10m 0s'
-            },
-            {
-                uuid: 'swap-004',
-                pair: 'BNB/AUD',
-                status: 'completed',
-                baseAmount: '0.10000000',
-                relAmount: '130.36',
-                completedAt: new Date(now - 7200000).toLocaleString(),
-                startedAt: new Date(now - 7800000).toLocaleString(),
-                duration: '10m 0s'
-            },
-            {
-                uuid: 'swap-005',
-                pair: 'DOGE/AUD',
-                status: 'cancelled',
-                baseAmount: '1000.00000000',
-                relAmount: '326.00',
-                completedAt: new Date(now - 10800000).toLocaleString(),
-                startedAt: new Date(now - 11400000).toLocaleString(),
-                duration: '10m 0s'
-            }
-        ];
-
-        return mockSwaps.slice(0, this._config.max_swaps);
-    }
 
     displayRecentSwaps(swaps) {
         this._recentSwapsData = swaps;
