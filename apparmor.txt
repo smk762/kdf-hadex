@@ -1,0 +1,64 @@
+# AppArmor profile for the KDF add-on
+# Replace ADDON_SLUG below with the slug from `config.yaml` if needed
+# See: https://developers.home-assistant.io/docs/add-ons/presentation/#apparmor
+
+#include <tunables/global>
+
+profile kdf-hadex flags=(attach_disconnected,mediate_deleted) {
+  #include <abstractions/base>
+
+  # Capabilities
+  file,
+  signal (send) set=(kill,term,int,hup,cont),
+
+  # S6-Overlay and addon runtime
+  /init ix,
+  /bin/** ix,
+  /usr/bin/** ix,
+  /run/{s6,s6-rc*,service}/** ix,
+  /package/** ix,
+  /command/** ix,
+  /etc/services.d/** rwix,
+  /etc/cont-init.d/** rwix,
+  /etc/cont-finish.d/** rwix,
+  /run/{,**} rwk,
+  /dev/tty rw,
+
+  # Bashio
+  /usr/lib/bashio/** ix,
+  /tmp/** rwk,
+
+  # Access to add-on data and mapped volumes
+  /data/** rw,
+
+  # allow static web assets to be read
+  /root/www/ r,
+  /root/www/** r,
+  /root/www/dist/** r,
+  /root/www/vendor/** r,
+
+  # allow the panel server script to be read by Python
+  /usr/local/bin/panel-server.py r,
+
+  # Start new profile for service
+  /usr/local/bin/kdf cx -> kdf,
+
+  profile kdf flags=(attach_disconnected,mediate_deleted) {
+    #include <abstractions/base>
+
+    # Receive signals from S6-Overlay
+    signal (receive) peer=*_kdf-hadex,
+
+    # Access to options.json and other files within your addon
+    /data/** rw,
+
+    # Access required for service functionality
+    /usr/local/bin/kdf r,
+    /bin/bash rix,
+    /bin/echo ix,
+    /etc/passwd r,
+    /dev/tty rw,
+  }
+}
+
+

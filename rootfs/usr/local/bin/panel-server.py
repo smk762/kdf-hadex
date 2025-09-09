@@ -11,9 +11,9 @@ import json
 import time
 import logging
 import requests
-from typing import Any, Dict, Optional
-from fastapi import FastAPI, Request, HTTPException, Response
-from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
+from typing import Any, Dict, Optional, Set
+from fastapi import FastAPI, Request, HTTPException, Response, WebSocket
+from fastapi.responses import JSONResponse, FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 # Use shared utilities (ensure /usr/local/lib is on sys.path)
@@ -26,6 +26,62 @@ import asyncio
 
 LOG = logging.getLogger("panel-server")
 logging.basicConfig(level=logging.DEBUG, format='[%(asctime)s] [panel-server] %(message)s')
+
+# Broadcaster globals
+_BROADCAST_QUEUE: Optional[asyncio.Queue] = None
+_SUBSCRIBERS: Optional[Set[asyncio.Queue]] = None
+POLL_INTERVAL = 3
+
+
+async def kdf_poller_loop():
+    """Background poller that queries a small, safe KDF status endpoint and enqueues events.
+    Minimal implementation to avoid NameError and provide basic updates."""
+    global _BROADCAST_QUEUE
+    while True:
+        try:
+            try:
+                stat = call_kdf_rpc('status') or {}
+            except Exception as e:
+                LOG.debug(f'poller: call_kdf_rpc failed: {e}')
+                stat = {}
+            ev = {'type': 'status', 'payload': stat}
+            if _BROADCAST_QUEUE is None:
+                _BROADCAST_QUEUE = asyncio.Queue()
+            # put without blocking forever
+            try:
+                await _BROADCAST_QUEUE.put(ev)
+            except Exception:
+                LOG.exception('failed to enqueue event')
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            LOG.exception('kdf_poller_loop error')
+        await asyncio.sleep(POLL_INTERVAL)
+
+
+async def broadcaster_loop():
+    """Fan-out events from the broadcast queue to subscriber queues."""
+    global _BROADCAST_QUEUE, _SUBSCRIBERS
+    if _BROADCAST_QUEUE is None:
+        _BROADCAST_QUEUE = asyncio.Queue()
+    if _SUBSCRIBERS is None:
+        _SUBSCRIBERS = set()
+    while True:
+        try:
+            ev = await _BROADCAST_QUEUE.get()
+            subs = list(_SUBSCRIBERS) if _SUBSCRIBERS else []
+            for q in subs:
+                try:
+                    # Best-effort: do not await forever
+                    await q.put(ev)
+                except Exception:
+                    # ignore per-subscriber errors
+                    continue
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            LOG.exception('broadcaster_loop error')
+            await asyncio.sleep(1)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -81,36 +137,37 @@ async def lifespan(app: FastAPI):
                     if isinstance(c, dict):
                         t = c.get('ticker') or c.get('coin')
                         if t:
-                            enabled.append(t.upper())
+                            enabled.append(t)
                     elif isinstance(c, str):
-                        enabled.append(c.upper())
+                        enabled.append(c)
             store = load_activation_store()
             new_store = {k: v for k, v in store.items() if k.upper() in enabled}
             save_activation_store(new_store)
         except Exception:
             LOG.exception('failed to prune activation store on startup')
 
-    # Save OpenAPI schema to disk for the static UI to consume
+    # Initialize broadcaster structures and start background tasks
     try:
-        try:
-            schema = app.openapi()
-            out_path = '/root/www/openapi.json'
-            os.makedirs(os.path.dirname(out_path), exist_ok=True)
-            with open(out_path, 'w') as f:
-                json.dump(schema, f, indent=2)
-            LOG.info(f'Wrote OpenAPI schema to {out_path}')
-        except Exception as e:
-            LOG.exception(f'failed to write OpenAPI schema: {e}')
+        app.state._kdf_poller = asyncio.create_task(kdf_poller_loop())
+        app.state._kdf_broadcaster = asyncio.create_task(broadcaster_loop())
+        LOG.info('Started KDF poller and broadcaster background tasks')
     except Exception:
-        # non-fatal: do not prevent server startup
-        pass
+        LOG.exception('failed to start broadcaster tasks')
 
     yield
 
-    # shutdown cleanup (none needed)
+    # shutdown cleanup: cancel broadcaster/poller
+    try:
+        if hasattr(app.state, '_kdf_poller'):
+            app.state._kdf_poller.cancel()
+        if hasattr(app.state, '_kdf_broadcaster'):
+            app.state._kdf_broadcaster.cancel()
+    except Exception:
+        pass
 
-# openapi_url is the path to the OpenAPI schema. With Hassio ingress, we need to prefix the path with the token. Need to find a way to keep this fresh.
-app = FastAPI(title="KDF Panel Server", lifespan=lifespan, openapi_url='/api/hassio_ingress/4x6ZqMyCf0XX8UUMqzn5xFiJxe7FesRJDpSjJLS4c0E/openapi.json')
+# openapi_url/docs are intentionally disabled. We expose a single OpenAPI endpoint at /api/openapi.json
+# to avoid leaking tokenized ingress paths and to give full control over the exposed schema path.
+app = FastAPI(title="KDF Panel Server", lifespan=lifespan, openapi_url=None, docs_url=None, redoc_url=None)
 
 
 @app.middleware("http")
@@ -1301,6 +1358,359 @@ def api_status():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get('/api/summary')
+def api_summary():
+    """Return a consolidated dashboard summary combining status, activation, prices and trading counts.
+
+    Shape:
+      { status, version, peer_count, enabled_coins, activation: {...},
+        active_swaps_count, my_orders_count, recent_swaps_count,
+        total_value: number, fiat: str }
+    """
+    try:
+        # Base status
+        try:
+            stat_resp = api_status()
+            stat = json.loads(stat_resp.body) if hasattr(stat_resp, 'body') else {}
+        except Exception:
+            stat = {'status': 'connected', 'version': get_kdf_version(), 'peer_count': 0, 'enabled_coins': []}
+
+        # Activation summary
+        try:
+            act_resp = api_activation_status()
+            act = json.loads(act_resp.body) if hasattr(act_resp, 'body') else {}
+            activation = act.get('activation') if isinstance(act, dict) else {}
+        except Exception:
+            activation = {}
+
+        # Coingecko prices
+        try:
+            prices_resp = api_coingecko_prices()
+            prices_data = json.loads(prices_resp.body) if hasattr(prices_resp, 'body') else {}
+            prices = prices_data.get('prices', {})
+            fiat = (prices_data.get('fiat') or 'USD').upper()
+        except Exception:
+            prices = {}
+            fiat = 'USD'
+
+        # Trading counts: fetch KDF RPC methods and compute counts server-side
+        active_swaps_count = 0
+        my_orders_count = 0
+        recent_swaps_count = 0
+        try:
+            try:
+                asr = call_kdf_rpc('active_swaps') or {}
+            except Exception:
+                asr = {}
+            ares = asr.get('result') if isinstance(asr, dict) and 'result' in asr else asr
+            if isinstance(ares, dict) and ares.get('uuids') and isinstance(ares.get('uuids'), list):
+                active_swaps_count = len(ares.get('uuids'))
+            elif isinstance(ares, list):
+                active_swaps_count = len(ares)
+
+            try:
+                mor = call_kdf_rpc('my_orders') or {}
+            except Exception:
+                mor = {}
+            mres = mor.get('result') if isinstance(mor, dict) and 'result' in mor else mor
+            if isinstance(mres, dict):
+                maker = mres.get('maker_orders') or {}
+                taker = mres.get('taker_orders') or {}
+                makerCount = 0
+                takerCount = 0
+                if isinstance(maker, list):
+                    makerCount = len(maker)
+                else:
+                    try:
+                        makerCount = sum([len(v) if isinstance(v, list) else 0 for v in maker.values()])
+                    except Exception:
+                        makerCount = 0
+                if isinstance(taker, list):
+                    takerCount = len(taker)
+                else:
+                    try:
+                        takerCount = sum([len(v) if isinstance(v, list) else 0 for v in taker.values()])
+                    except Exception:
+                        takerCount = 0
+                my_orders_count = makerCount + takerCount
+
+            try:
+                rr = call_kdf_rpc('my_recent_swaps') or {}
+            except Exception:
+                rr = {}
+            rres = rr.get('result') if isinstance(rr, dict) and 'result' in rr else rr
+            if isinstance(rres, dict) and isinstance(rres.get('swaps'), list):
+                recent_swaps_count = len(rres.get('swaps'))
+            elif isinstance(rres, list):
+                recent_swaps_count = len(rres)
+        except Exception:
+            pass
+
+        # Compute total fiat value using activation total_balance and prices mapping
+        total_value = 0.0
+        try:
+            # activation: mapping ticker -> { total_balance: {CUR: amount_str, ...}, ... }
+            for t, entry in (activation or {}).items():
+                tb = entry.get('total_balance') if isinstance(entry, dict) else {}
+                if not isinstance(tb, dict):
+                    continue
+                for cur, amt in tb.items():
+                    try:
+                        a = float(str(amt))
+                    except Exception:
+                        a = 0.0
+                    if a == 0:
+                        continue
+                    # price lookup: prices keyed by ticker (cur)
+                    pentry = prices.get(cur) or prices.get(cur.upper())
+                    price_val = None
+                    if isinstance(pentry, dict):
+                        price_val = pentry.get('price')
+                    try:
+                        if price_val is not None:
+                            pv = float(price_val)
+                            if pv and a:
+                                total_value += a * pv
+                    except Exception:
+                        continue
+        except Exception:
+            total_value = 0.0
+
+        return JSONResponse({
+            'status': stat.get('status', 'connected'),
+            'version': stat.get('version'),
+            'peer_count': stat.get('peer_count', 0),
+            'enabled_coins': stat.get('enabled_coins', []),
+            'activation': activation,
+            'active_swaps_count': active_swaps_count,
+            'my_orders_count': my_orders_count,
+            'recent_swaps_count': recent_swaps_count,
+            'total_value': round(total_value, 2),
+            'fiat': fiat,
+            'timestamp': time.time()
+        })
+    except Exception:
+        LOG.exception('error in /api/summary')
+        raise HTTPException(status_code=500, detail='failed to build summary')
+
+
+def _format_sig(v: Any) -> str:
+    """Format number similarly to JS toPrecision(12) without exponential when possible."""
+    try:
+        n = float(v)
+    except Exception:
+        return str(v)
+    # Use 12 significant digits
+    s = format(n, '.12g')
+    # If output not exponential, strip trailing zeros after decimal
+    if 'e' not in s and '.' in s:
+        s = s.rstrip('0').rstrip('.')
+    return s
+
+
+@app.get('/api/my_orders_transformed')
+def api_my_orders_transformed():
+    try:
+        resp = call_kdf_rpc('my_orders') or {}
+        data = resp.get('result') if isinstance(resp, dict) and 'result' in resp else resp
+        orders = []
+        if isinstance(data, list):
+            for order in data:
+                price = float(order.get('price') or 0)
+                vol = float(order.get('maxvolume') or 0)
+                orders.append({
+                    'uuid': order.get('uuid') or 'Unknown',
+                    'pair': f"{order.get('base')}/{order.get('rel')}",
+                    'type': order.get('type') or 'unknown',
+                    'price': _format_sig(price),
+                    'volume': _format_sig(vol),
+                    'total': _format_sig(price * vol),
+                    'createdAt': (time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(order.get('created_at'))) if order.get('created_at') else 'Unknown'),
+                    'status': order.get('status') or 'active'
+                })
+        return JSONResponse({'orders': orders})
+    except Exception:
+        LOG.exception('error in /api/my_orders_transformed')
+        raise HTTPException(status_code=500, detail='failed to fetch my_orders')
+
+
+@app.get('/api/best_orders_transformed')
+def api_best_orders_transformed(coin: str = None, action: str = 'buy', max_orders: int = 10):
+    try:
+        params = {'coin': coin, 'action': action, 'request_by': {'type': 'number', 'value': int(max_orders)}}
+        resp = call_kdf_rpc('best_orders', params) or {}
+        result = resp.get('result') if isinstance(resp, dict) and 'result' in resp else resp
+        # Normalize
+        orders_map = result if result else {}
+        if isinstance(result, dict) and result.get('orders'):
+            orders_map = result.get('orders')
+
+        buy_orders = []
+        sell_orders = []
+        if isinstance(orders_map, dict):
+            for pair, orders in orders_map.items():
+                bids = orders.get('bids') if isinstance(orders, dict) else orders.get('bids') if hasattr(orders, 'bids') else None
+                asks = orders.get('asks') if isinstance(orders, dict) else orders.get('asks') if hasattr(orders, 'asks') else None
+                if isinstance(bids, list):
+                    for bid in bids:
+                        p = float(bid.get('price') or 0)
+                        v = float(bid.get('maxvolume') or 0)
+                        buy_orders.append({'pair': pair, 'price': _format_sig(p), 'volume': _format_sig(v), 'total': _format_sig(p * v)})
+                if isinstance(asks, list):
+                    for ask in asks:
+                        p = float(ask.get('price') or 0)
+                        v = float(ask.get('maxvolume') or 0)
+                        sell_orders.append({'pair': pair, 'price': _format_sig(p), 'volume': _format_sig(v), 'total': _format_sig(p * v)})
+
+        buy_orders = sorted(buy_orders, key=lambda x: float(x['price'] or 0), reverse=True)[:int(max_orders)]
+        sell_orders = sorted(sell_orders, key=lambda x: float(x['price'] or 0))[:int(max_orders)]
+
+        return JSONResponse({'buyOrders': buy_orders, 'sellOrders': sell_orders, 'raw': result})
+    except Exception:
+        LOG.exception('error in /api/best_orders_transformed')
+        raise HTTPException(status_code=500, detail='failed to fetch best_orders')
+
+
+@app.get('/api/orderbook_transformed')
+def api_orderbook_transformed(base: str = None, rel: str = None):
+    try:
+        params = {'base': base, 'rel': rel}
+        resp = call_kdf_rpc('orderbook', params) or {}
+        data = resp.get('result') if isinstance(resp, dict) and 'result' in resp else resp
+        bids = []
+        asks = []
+        if data:
+            for bid in (data.get('bids') or []):
+                p = float(bid.get('price') or 0)
+                v = float(bid.get('maxvolume') or 0)
+                bids.append({'price': _format_sig(p), 'volume': _format_sig(v), 'total': _format_sig(p * v)})
+            for ask in (data.get('asks') or []):
+                p = float(ask.get('price') or 0)
+                v = float(ask.get('maxvolume') or 0)
+                asks.append({'price': _format_sig(p), 'volume': _format_sig(v), 'total': _format_sig(p * v)})
+        best_bid = float(bids[0]['price']) if bids else 0
+        best_ask = float(asks[0]['price']) if asks else 0
+        spread = _format_sig(best_ask - best_bid) if best_bid and best_ask else _format_sig(0)
+        return JSONResponse({'bids': sorted(bids, key=lambda x: float(x['price']), reverse=True), 'asks': sorted(asks, key=lambda x: float(x['price'])), 'spread': spread, 'raw': data})
+    except Exception:
+        LOG.exception('error in /api/orderbook_transformed')
+        raise HTTPException(status_code=500, detail='failed to fetch orderbook')
+
+
+@app.post('/api/sell')
+def api_sell(payload: Dict[str, Any]):
+    try:
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail='Invalid payload')
+        base = payload.get('base')
+        rel = payload.get('rel')
+        volume = payload.get('volume')
+        price = payload.get('price')
+        if not base or not rel or volume is None or price is None:
+            raise HTTPException(status_code=400, detail='Missing order parameters')
+        res = call_kdf_rpc('sell', {'base': base, 'rel': rel, 'volume': str(volume), 'price': str(price)})
+        return JSONResponse({'result': res})
+    except HTTPException:
+        raise
+    except Exception as e:
+        LOG.exception('error in /api/sell')
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post('/api/buy')
+def api_buy(payload: Dict[str, Any]):
+    try:
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail='Invalid payload')
+        base = payload.get('base')
+        rel = payload.get('rel')
+        volume = payload.get('volume')
+        price = payload.get('price')
+        if not base or not rel or volume is None or price is None:
+            raise HTTPException(status_code=400, detail='Missing order parameters')
+        res = call_kdf_rpc('buy', {'base': base, 'rel': rel, 'volume': str(volume), 'price': str(price)})
+        return JSONResponse({'result': res})
+    except HTTPException:
+        raise
+    except Exception as e:
+        LOG.exception('error in /api/buy')
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post('/api/cancel_order')
+def api_cancel_order(payload: Dict[str, Any]):
+    try:
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail='Invalid payload')
+        uuid = payload.get('uuid')
+        if not uuid:
+            raise HTTPException(status_code=400, detail='Missing uuid')
+        res = call_kdf_rpc('cancel_order', {'uuid': uuid})
+        return JSONResponse({'result': res})
+    except HTTPException:
+        raise
+    except Exception as e:
+        LOG.exception('error in /api/cancel_order')
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post('/api/cancel_all_orders')
+def api_cancel_all_orders(payload: Dict[str, Any] = None):
+    try:
+        res = call_kdf_rpc('cancel_all_orders')
+        return JSONResponse({'result': res})
+    except Exception as e:
+        LOG.exception('error in /api/cancel_all_orders')
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get('/api/active_swaps_transformed')
+def api_active_swaps_transformed():
+    try:
+        resp = call_kdf_rpc('active_swaps') or {}
+        data = resp.get('result') if isinstance(resp, dict) and 'result' in resp else resp
+        swaps = []
+        if isinstance(data, list):
+            for swap in data:
+                swaps.append({
+                    'uuid': swap.get('uuid') or 'Unknown',
+                    'pair': f"{swap.get('base')}/{swap.get('rel')}",
+                    'status': swap.get('status') or 'pending',
+                    'baseAmount': _format_sig(swap.get('base_amount') or 0),
+                    'relAmount': _format_sig(swap.get('rel_amount') or 0),
+                    'progress': 100 if swap.get('status') == 'completed' else (0 if swap.get('status') == 'failed' else 75 if swap.get('status') == 'matched' else 25),
+                    'startedAt': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(swap.get('started_at'))) if swap.get('started_at') else 'Unknown',
+                    'expiresAt': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(swap.get('expires_at'))) if swap.get('expires_at') else 'Unknown'
+                })
+        return JSONResponse({'swaps': swaps})
+    except Exception:
+        LOG.exception('error in /api/active_swaps_transformed')
+        raise HTTPException(status_code=500, detail='failed to fetch active_swaps')
+
+
+@app.get('/api/recent_swaps_transformed')
+def api_recent_swaps_transformed(max_swaps: int = 10):
+    try:
+        resp = call_kdf_rpc('my_recent_swaps') or {}
+        data = resp.get('result') if isinstance(resp, dict) and 'result' in resp else resp
+        swaps = []
+        if isinstance(data, list):
+            for swap in data:
+                swaps.append({
+                    'uuid': swap.get('uuid') or 'Unknown',
+                    'pair': f"{swap.get('base')}/{swap.get('rel')}",
+                    'status': swap.get('status') or 'completed',
+                    'baseAmount': _format_sig(swap.get('base_amount') or 0),
+                    'relAmount': _format_sig(swap.get('rel_amount') or 0),
+                    'completedAt': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(swap.get('finished_at'))) if swap.get('finished_at') else 'Unknown',
+                    'startedAt': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(swap.get('started_at'))) if swap.get('started_at') else 'Unknown'
+                })
+        return JSONResponse({'swaps': swaps[:int(max_swaps)]})
+    except Exception:
+        LOG.exception('error in /api/recent_swaps_transformed')
+        raise HTTPException(status_code=500, detail='failed to fetch recent_swaps')
+
+
 @app.post('/api/set_fiat')
 def api_set_fiat(payload: Dict[str, Any]):
     fiat = payload.get('fiat')
@@ -1437,6 +1847,67 @@ async def api_kdf_request(request: Request):
     except requests.exceptions.RequestException as e:
         LOG.exception(f'error forwarding {method} to KDF RPC: {e} /n {body}')
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get('/api/kdf_sse')
+async def api_kdf_sse(request: Request):
+    """Server-Sent Events endpoint that streams KDF broadcaster events to connected clients."""
+    global _SUBSCRIBERS, _BROADCAST_QUEUE
+    q = asyncio.Queue()
+    if _SUBSCRIBERS is None:
+        _SUBSCRIBERS = set()
+    _SUBSCRIBERS.add(q)
+
+    async def event_generator():
+        try:
+            while True:
+                try:
+                    if await request.is_disconnected():
+                        break
+                except Exception:
+                    break
+                try:
+                    ev = await q.get()
+                    yield f"data: {json.dumps(ev)}\n\n"
+                except asyncio.CancelledError:
+                    break
+                except Exception:
+                    # on error, continue
+                    continue
+        finally:
+            try:
+                _SUBSCRIBERS.discard(q)
+            except Exception:
+                pass
+
+    return StreamingResponse(event_generator(), media_type='text/event-stream')
+
+
+@app.websocket('/api/kdf_ws')
+async def api_kdf_ws(ws: WebSocket):
+    """WebSocket endpoint that receives broadcaster events and pushes to client."""
+    global _SUBSCRIBERS
+    await ws.accept()
+    q = asyncio.Queue()
+    if _SUBSCRIBERS is None:
+        _SUBSCRIBERS = set()
+    _SUBSCRIBERS.add(q)
+    try:
+        while True:
+            ev = await q.get()
+            try:
+                await ws.send_text(json.dumps(ev))
+            except Exception:
+                break
+    finally:
+        try:
+            _SUBSCRIBERS.discard(q)
+        except Exception:
+            pass
+        try:
+            await ws.close()
+        except Exception:
+            pass
 
 
 @app.post('/api/validate_config')
@@ -1776,42 +2247,63 @@ def api_apply_login(payload: Dict[str, Any]):
         LOG.exception('error in /api/apply_login')
         raise HTTPException(status_code=500, detail=str(e))
 
-# HA ingress helper aliases to support paths rewritten by Home Assistant
-@app.get('/local_kdf/ingress')
-def local_ingress_root():
+# HA ingress alias: Supervisor may forward requests using hassio_ingress token paths.
+@app.get('/api/hassio_ingress/{token}/{tail:path}')
+async def hassio_ingress_alias(token: str, tail: str, request: Request):
+    """Handle tokenized ingress HTTP paths. Dispatch a small set of API endpoints
+    directly (SSE and safe GET endpoints) and fall back to catch_all for static files.
+    """
+    try:
+        # If the tail begins with 'api/', dispatch common endpoints directly
+        if tail.startswith('api/'):
+            inner = tail[len('api/'):]
+            # SSE endpoint
+            if inner.startswith('kdf_sse') and request.method == 'GET':
+                return await api_kdf_sse(request)
+            # other safe GET API endpoints
+            if inner.startswith('peers') and request.method == 'GET':
+                return api_peers()
+            if inner.startswith('tickers') and request.method == 'GET':
+                return api_tickers()
+            if inner.startswith('enabled_coins') and request.method == 'GET':
+                return api_enabled_coins()
+            if inner.startswith('available_fiats') and request.method == 'GET':
+                return api_available_fiats()
+            if inner.startswith('options') and request.method == 'GET':
+                return api_options()
+            if inner.startswith('status') and request.method == 'GET':
+                return api_status()
+            # explicitly block proxied POST RPC proxy attempts via the ingress wrapper
+            if inner.startswith('kdf_request') and request.method == 'POST':
+                raise HTTPException(status_code=404)
+        # Fallback: let catch_all handle static files or other routes
+        return await catch_all(tail, request, token)
+    except HTTPException:
+        raise
+    except Exception:
+        LOG.exception('hassio_ingress_alias dispatch error')
+        raise HTTPException(status_code=500, detail='ingress dispatch error')
+
+
+@app.websocket('/api/hassio_ingress/{token}/api/kdf_ws')
+async def hassio_ingress_ws(token: str, websocket: WebSocket):
+    """WebSocket ingress alias: forward to the normal websocket handler."""
+    # Delegate to existing websocket handler which accepts the connection
+    return await api_kdf_ws(websocket)
+
+# Minimal set of ingress-prefixed aliases to support Supervisor rewrites that
+# place the addon under `/local/kdf-hadex/...` or `/kdf-hadex/...`.
+@app.get('/local/kdf-hadex/{tail:path}')
+async def local_kdf_hadex_tail(tail: str, request: Request):
+    return await catch_all(tail, request)
+
+@app.get('/local/kdf-hadex')
+def local_kdf_hadex_root():
     return ingress_root()
-
-
-@app.get('/local_kdf/ingress/{tail:path}')
-def local_ingress_tail(tail: str, request: Request):
-    # tail may include api/... or static paths
-    return catch_all(tail, request)
-
-
-@app.get('/local_kdf/{tail:path}')
-def local_kdf_prefix(tail: str, request: Request):
-    return catch_all(tail, request)
-
-# Support ingress alias matching the add-on slug (some supervisors use the addon folder name)
-@app.get('/kdf-hadex/ingress')
-def kh_ingress_root():
-    return ingress_root()
-
-
-@app.get('/kdf-hadex/ingress/{tail:path}')
-def kh_ingress_tail(tail: str, request: Request):
-    return catch_all(tail, request)
-
 
 @app.get('/kdf-hadex/{tail:path}')
-def kh_prefix_tail(tail: str, request: Request):
-    return catch_all(tail, request)
-
-
-@app.get('/api/hassio_ingress/{token}/{tail:path}')
-def hassio_ingress_alias(token: str, tail: str, request: Request):
-    return catch_all(tail, request, token)
-
+async def kdf_hadex_tail(tail: str, request: Request):
+    return await catch_all(tail, request)
 
 # Register static routes after API routes so API endpoints are matched first.
 def _guess_media_type(path: str) -> str:
@@ -1828,27 +2320,41 @@ def _guess_media_type(path: str) -> str:
 
 @app.get('/ingress')
 def ingress_root():
-    dashboard = '/root/www/kdf-panel.html'
-    if os.path.exists(dashboard):
-        return FileResponse(dashboard, media_type='text/html; charset=utf-8')
+    # Prefer production panel.html (loads built bundle). Fall back to possible build outputs or dev-index.html for local dev.
+    candidates = [
+        '/root/www/panel.html',
+        '/root/www/dist/panel.html',
+        '/root/www/dist/index.html',
+        '/root/www/dev-index.html'
+    ]
+    for dashboard in candidates:
+        try:
+            if os.path.exists(dashboard):
+                LOG.info(f'Serving dashboard from: {dashboard}')
+                return FileResponse(dashboard, media_type='text/html; charset=utf-8')
+        except Exception:
+            continue
     raise HTTPException(status_code=404, detail='Dashboard not found')
 
 
 @app.get('/{full_path:path}')
 def catch_all(full_path: str, request: Request, token: Optional[str] = None):
-    # If the path contains an embedded api segment (e.g. ingress-prefix/api/peers),
-    # forward to the matching API handler defined above.
+    # Minimal fallback file server: prefer mounted static directories, otherwise
+    # try to return a file directly from /root/www if present. Keep API handling above.
     if token:
         LOG.info(f'token: {token}')
-        LOG.info(f'token: {token}')
-        LOG.info(f'token: {token}')
     else:
-        LOG.info(f'NO token:')
-        LOG.info(f'No token:')
+        try:
+            if 'ingress' in full_path or request.headers.get('x-ingress-path') or request.headers.get('x-forwarded-for'):
+                hdrs = list(request.headers.keys())
+                LOG.info(f'NO token; ingress-like request path={full_path} header_keys={hdrs}')
+        except Exception:
+            pass
 
-    if '/api/' in full_path:
-        tail = full_path.split('/api/', 1)[1]
-        # map common API endpoints to functions
+    # Allow a small set of API paths to be proxied through when called via ingress-style paths
+    path_with_slash = '/' + full_path.lstrip('/')
+    if path_with_slash.startswith('/api/') or '/api/' in path_with_slash:
+        tail = path_with_slash.split('/api/', 1)[1]
         if tail.startswith('peers') and request.method == 'GET':
             return api_peers()
         if tail.startswith('tickers') and request.method == 'GET':
@@ -1861,28 +2367,51 @@ def catch_all(full_path: str, request: Request, token: Optional[str] = None):
             return api_options()
         if tail.startswith('status') and request.method == 'GET':
             return api_status()
-        # For kdf_request POST, we cannot easily proxy here; return 404 so client retries proper path
+        # explicitly block proxied POST RPC proxy attempts via the catch-all
         if tail.startswith('kdf_request') and request.method == 'POST':
             raise HTTPException(status_code=404)
 
+    # Try to serve a static file from /root/www but prevent directory traversal.
     rel = full_path.lstrip('/')
-    candidates = [os.path.join('/root/www', rel), os.path.join('/root/www', os.path.basename(rel))]
-    if '/ingress/' in rel:
-        candidates.append(os.path.join('/root/www', rel.split('/ingress/')[-1].lstrip('/')))
+    # normalize the path to collapse '..' segments and remove leading '/'
+    safe_rel = os.path.normpath(rel)
+    # If normalization results in up-level access, reject
+    if safe_rel.startswith('..') or os.path.isabs(safe_rel):
+        raise HTTPException(status_code=404, detail='Not Found')
 
-    for p in candidates:
-        if p and os.path.exists(p) and os.path.isfile(p):
-            return FileResponse(p, media_type=_guess_media_type(p))
+    p = os.path.join('/root/www', safe_rel) if safe_rel and safe_rel != '.' else '/root/www'
+    if p and os.path.exists(p) and os.path.isfile(p):
+        return FileResponse(p, media_type=_guess_media_type(p))
 
-    # Common HA ingress alias used by older setups
-    if full_path in ('', '/', 'local_kdf/ingress', 'local_kdf'):
-        dashboard = '/root/www/kdf-panel.html'
-        if os.path.exists(dashboard):
-            return FileResponse(dashboard, media_type='text/html; charset=utf-8')
+    # Fallback to panel.html or dev-index
+    dashboard = '/root/www/panel.html'
+    dev_index = '/root/www/dev-index.html'
+    if os.path.exists(dashboard):
+        LOG.info(f'Serving dashboard from: {dashboard}')
+        return FileResponse(dashboard, media_type='text/html; charset=utf-8')
+    if os.path.exists(dev_index):
+        LOG.info(f'Serving dev-index from: {dev_index}')
+        return FileResponse(dev_index, media_type='text/html; charset=utf-8')
 
     raise HTTPException(status_code=404, detail='Not Found')
 
 # Allow running the server by executing the module directly (fallback if uvicorn binary is not used).
+@app.get('/')
+def root_index(request: Request = None):
+    """Serve same content as ingress root for clients that request '/'"""
+    try:
+        return ingress_root()
+    except Exception:
+        raise HTTPException(status_code=404, detail='Not Found')
+
+# Mount static files under the canonical ingress prefix so requests for
+# `/local/kdf-hadex/...` are served directly from the built web assets.
+# This mount is registered after API endpoints so APIs take precedence.
+try:
+    app.mount('/local/kdf-hadex', StaticFiles(directory='/root/www'), name='local_kdf_hadex')
+except Exception:
+    LOG.exception('failed to mount /local/kdf-hadex static files')
+
 if __name__ == '__main__':
     try:
         import uvicorn

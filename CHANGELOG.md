@@ -11,11 +11,12 @@
 # Changelog
 
 ## 0.1.2
-- Initial release: HAOS add-on skeleton for KDF (mm2)
-- Copies `mm2` from upstream image, creates `mm2.json`, and starts service via s6
-- Supports optional `coins.json` from URL or /share
+
+- Initial release: HAOS add-on skeleton for KDF
+- Copies `kdf` from upstream image, creates `MM2.json`, and starts service via s6
 
 ## 0.1.3
+
 - Switch to FastAPI panel server and single `POST /api/kdf_request` forwarder
 - Added `kdf_utils.py` shared utilities and `KdfMethod` for payload/version handling
 - Implemented in-memory caching for common read RPCs and Coingecko price caching

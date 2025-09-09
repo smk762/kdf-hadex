@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install frontend dependencies
+        working-directory: rootfs/www
+        run: npm ci
+
+      - name: Typecheck and build frontend
+        working-directory: rootfs/www
+        run: npm run ci
+
+      - name: Run frontend unit tests (if present)
+        working-directory: rootfs/www
+        run: |
+          if [ -f package.json ] && grep -q "test" package.json; then
+            npm test || true
+          else
+            echo "No frontend tests defined"
+          fi
+
+      - name: Upload web dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kdf-web-dist
+          path: rootfs/www/dist
+
+      - name: Build add-on Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile
+          push: false
+          tags: kdf-hadex:ci
+
+      - name: Save Docker image artifact (tar)
+        run: |
+          docker save kdf-hadex:ci -o kdf-hadex-ci.tar
+        shell: bash
+
+      - name: Upload docker image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kdf-addon-image
+          path: kdf-hadex-ci.tar

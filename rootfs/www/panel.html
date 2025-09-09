@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>KDF Panel (Production)</title>
+  <link rel="stylesheet" href="./kdf-styles.css">
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module">
+    (async function(){
+      try{
+        // Load the production bundle from dist (relative so ingress prefixes work)
+        await import('./dist/panel.js');
+      }catch(e){
+        // Fallback to dev index if present
+        try{ await import('./dev-index.html'); }catch(e2){ console.error('Failed to load panel bundle or dev index', e2); }
+      }
+    })();
+  </script>
+</body>
+</html>

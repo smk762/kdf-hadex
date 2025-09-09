@@ -1,12 +1,14 @@
 name: Komodo DeFi Framework (KDF)
 slug: kdf-hadex
 version: "0.1.4"
-description: Runs the Komodo DeFi Framework (kdf) JSON-RPC engine for the HA integration. KDF version is displayed in the add-on logs.
+description: "Runs the Komodo DeFi Framework (KDF) inside Home Assistant as an add-on. Exposes a panel and optional HA integration."
 url: https://github.com/smk762/kdf-hadex
 startup: services
 boot: auto
 arch:
   - amd64
+  - armv7
+  - aarch64
 init: false
 host_network: false
 build_from:
@@ -16,12 +18,11 @@ ports:
   7783/tcp: 7783
   8099/tcp: 8099
 ports_description:
-  7783/tcp: KDF JSON-RPC
-  8099/tcp: KDF Ingress Dashboard
+  7783/tcp: KDF JSON-RPC (if exposed)
+  8099/tcp: Panel server ingress (panel UI)
 
 map:
   - data:rw
-  - share:rw
 
 environment:
   LANG: C.UTF-8
@@ -34,17 +35,25 @@ ingress_port: 8099
 panel_icon: mdi:chart-line
 panel_title: KDF Trading
 
-
+logo: "logo.svg"
+icon: "icon.svg"
 
 options:
   wallet_name: "HAOS KDF Wallet"
-  wallet_password: "change_this_password"
-
-
+  wallet_password: "CHANGE_ME_PLEASE"
+  rpc_password: "CHANGE_ME_PLEASE"
+  rpc_port: 7783
+  netid: 8762
+  enable_dashboard: true
+  import_mnemonic: false
 
 schema: 
   wallet_name: str
   wallet_password: password
+  rpc_password: password
+  rpc_port: int
+  netid: int
+  enable_dashboard: bool
+  import_mnemonic: bool
 
-
-# https://developers.home-assistant.io/docs/add-ons/configuration/
+# See: https://developers.home-assistant.io/docs/add-ons/configuration/

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="128" viewBox="0 0 512 128">
+  <rect width="512" height="128" rx="16" fill="#0f172a" />
+  <g transform="translate(32,16)">
+    <circle cx="48" cy="40" r="28" fill="#06b6d4" />
+    <rect x="120" y="36" width="320" height="24" rx="12" fill="#06b6d4" />
+    <text x="256" y="96" font-size="20" fill="#ffffff" text-anchor="middle" font-family="Arial">Komodo DeFi Framework</text>
+  </g>
+</svg>
+
+

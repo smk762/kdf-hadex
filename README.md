@@ -62,7 +62,6 @@ API references (Komodo docs):
 
 ## Volumes
 - `/data` – persists `MM2.json`, DB, and logs
-- `/share/kdf/coins.json` – optional local coins file
 
 ## Checking KDF Version
 
