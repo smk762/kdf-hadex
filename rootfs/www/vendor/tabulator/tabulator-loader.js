@@ -1,6 +1,17 @@
 // Tabulator loader with local-first fallback and promise export
-const LOCAL_CSS = '/local/kdf-hadex/tabulator.min.css';
-const LOCAL_JS = '/local/kdf-hadex/tabulator.min.js';
+// Compute an ingress-aware base (e.g. /api/hassio_ingress/<token>) when running
+// behind Home Assistant ingress. Fall back to the canonical `/local/kdf-hadex`.
+function _ingressBase(){
+    try{
+        const p = (typeof location !== 'undefined' && location.pathname) ? location.pathname : '';
+        const m = p.match(/^(.*\/api\/hassio_ingress\/[^\/]+)\/?/);
+        if(m && m[1]) return m[1];
+    }catch(e){}
+    return '/local/kdf-hadex';
+}
+const _LOCAL_BASE = _ingressBase();
+const LOCAL_CSS = _LOCAL_BASE + '/vendor/tabulator/tabulator.min.css';
+const LOCAL_JS = _LOCAL_BASE + '/vendor/tabulator/tabulator.min.js';
 const CDN_CSS = 'https://unpkg.com/tabulator-tables@6.3.0/dist/css/tabulator.min.css';
 const CDN_JS = 'https://unpkg.com/tabulator-tables@6.3.0/dist/js/tabulator.min.js';
 

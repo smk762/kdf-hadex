@@ -17,6 +17,7 @@ class KDFPanel extends LitElement {
           <h1>KDF Trading Dashboard</h1>
           <p>Komodo DeFi Framework Integration</p>
           <button class="refresh-btn">Refresh Data</button>
+          <span id="next-update" style="margin-left:12px;font-size:0.9rem">Next update: --s</span>
           <div id="exchange-indicator" style="margin-top:8px;font-size:0.9rem"></div>
         </div>
         <div class="kdf-cards">
@@ -39,15 +40,24 @@ class KDFPanel extends LitElement {
           <div class="kdf-card">
             <h3>Information</h3>
             <p>This dashboard shows real-time data from the Komodo DeFi Framework (KDF) running in your Home Assistant add-on.</p>
+            <div style="margin-top:8px">
+              <a href="/hassio/addon/local_kdf-hadex/logs" target="_blank" rel="noreferrer">View Add-on Logs</a> ·
+              <a href="/hassio/addon/local_kdf-hadex/config" target="_blank" rel="noreferrer">Edit Add-on Config</a>
+            </div>
           </div>
         </div>
+        <div id="dynamic-cards" style="margin-top:16px"></div>
       </div>
     `;
     const btn = this.shadowRoot!.querySelector('.refresh-btn') as HTMLButtonElement | null;
     if (btn) btn.addEventListener('click', () => this.refreshData());
   }
 
-  firstUpdated(){
+  private _autoRefreshInterval: number = 30;
+  private _countdown: number = 0;
+  private _countdownTimer: any = null;
+
+  async firstUpdated(){
     // Start realtime client (will fallback to polling if necessary)
     this.realtime = new RealtimeClient('');
     this.realtime.subscribe('status', (payload)=>{
@@ -94,7 +104,64 @@ class KDFPanel extends LitElement {
       }catch(e){}
     });
 
-    this.realtime.start().catch(()=>{});
+    await this.realtime.start().catch(()=>{});
+    // Ensure initial data is loaded even if realtime push hasn't arrived yet
+    try{ this.refreshData(); }catch(e){}
+
+    // Start auto-refresh countdown
+    try{
+      // determine ingress-aware base for cards and polling
+      let computedBase = '';
+      try{ const p = (window.location && window.location.pathname) ? window.location.pathname : ''; const m = p.match(/^(.*\/api\/hassio_ingress\/[^\/]+)\/?/); if(m && m[1]) computedBase = m[1]; }catch(_e){}
+
+      // initialize countdown
+      this._countdown = this._autoRefreshInterval;
+      const nextElem = this.shadowRoot!.getElementById('next-update');
+      if(nextElem) nextElem.textContent = `Next update: ${this._countdown}s`;
+      this._countdownTimer = setInterval(()=>{
+        try{
+          this._countdown -= 1;
+          if(this._countdown <= 0){
+            this.refreshData();
+            this._countdown = this._autoRefreshInterval;
+          }
+          const ne = this.shadowRoot!.getElementById('next-update'); if(ne) ne.textContent = `Next update: ${this._countdown}s`;
+        }catch(e){}
+      }, 1000);
+
+      // Dynamically instantiate all cards for testing and pass panel_api_base
+      try{
+        const cardTags = ['kdf-active-swaps-card','kdf-best-orders-card','kdf-my-orders-card','kdf-orderbook-card','kdf-peers-card','kdf-recent-swaps-card','kdf-trading-actions-card','kdf-raw-rpc-card','coins-config-editor','kdf-orderbook-card-editor'];
+        const container = this.shadowRoot!.getElementById('dynamic-cards');
+        if(container){
+          for(const tag of cardTags){
+            try{
+              if(typeof customElements !== 'undefined' && customElements.get(tag)){
+                const el: any = document.createElement(tag);
+                // if element exposes setConfig, configure ingress-aware base
+                const cfg = { panel_api_base: (computedBase || '/') };
+                try{ if(typeof el.setConfig === 'function') el.setConfig(cfg); else el.setAttribute && el.setAttribute('panel_api_base', cfg.panel_api_base); }catch(e){}
+                container.appendChild(el);
+              } else {
+                // show a visible placeholder when the custom element isn't defined
+                const ph = document.createElement('div');
+                ph.className = 'card-missing';
+                ph.style = 'padding:8px;margin:6px 0;border:1px dashed var(--divider-color);background:var(--secondary-background-color);color:var(--primary-text-color);border-radius:6px;font-size:0.9rem;';
+                ph.textContent = `Card ${tag} not loaded: custom element not defined`;
+                container.appendChild(ph);
+              }
+            }catch(e){
+              const ph = document.createElement('div');
+              ph.className = 'card-error';
+              ph.style = 'padding:8px;margin:6px 0;border:1px dashed var(--divider-color);background:var(--secondary-background-color);color:#ff8888;border-radius:6px;font-size:0.9rem;';
+              ph.textContent = `Card ${tag} failed to create: ${String((e as any) || '')}`;
+              container.appendChild(ph);
+              continue;
+            }
+          }
+        }
+      }catch(e){}
+    }catch(e){}
 
     // Load coins_config once
     (async ()=>{

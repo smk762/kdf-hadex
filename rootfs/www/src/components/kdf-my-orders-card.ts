@@ -19,7 +19,7 @@ class KDFMyOrdersCard extends LitElement {
 
     render(){
         return html`
-            <link rel="stylesheet" href="/local/kdf-hadex/kdf-styles.css">
+            <link rel="stylesheet" href="./kdf-styles.css">
             <div class="header">
                 <div class="title">${this._config.title || 'KDF My Orders'}</div>
                 <div class="header-actions">
